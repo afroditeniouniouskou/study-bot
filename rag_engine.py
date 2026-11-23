@@ -9,50 +9,33 @@ load_dotenv()
 
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY"),
-    http_options=types.HttpOptions(timeout=30000),
+    http_options=types.HttpOptions(timeout=25000),
 )
 
-
-def get_available_flash_models() -> list[str]:
-    """Εντοπίζει τα ενεργά μοντέλα σειράς 3+ (flash) με προτεραιότητα στο gemini-3.8-flash."""
-    discovered = []
-    try:
-        for m in client.models.list():
-            name = (m.name or "").replace("models/", "")
-            actions = getattr(m, "supported_actions", None) or []
-            if "generateContent" in actions and "flash" in name.lower():
-                # Αγνοούμε παλιά 2.x (που δίνουν 404) και εξειδικευμένα (image/audio/live)
-                if not any(x in name.lower() for x in ["2.0", "2.5", "image", "audio", "tts", "live", "embedding"]):
-                    discovered.append(name)
-    except Exception as e:
-        print(f"⚠️ Σφάλμα κατά το list models: {e}", flush=True)
-
-    # Προτεραιότητα: 1) gemini-3.8-flash, 2) τα υπόλοιπα νεότερα flash (non-lite), 3) lite backups
-    discovered.sort(key=lambda x: (0 if "3.8-flash" in x else (1 if "lite" not in x else 2), x))
-    return discovered or ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
-
-
-ACTIVE_MODELS = get_available_flash_models()
-print(f"✅ Ενεργά μοντέλα (βελτιστοποιημένη σειρά): {ACTIVE_MODELS}", flush=True)
+# Κατευθείαν τα πιο γρήγορα ενεργά μοντέλα χωρίς περιττές κλήσεις discovery
+ACTIVE_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+]
 
 
 class QuizQuestion(BaseModel):
-    question: str = Field(description="Η ερώτηση κατανόησης πάνω στις σημειώσεις")
-    options: list[str] = Field(description="Ακριβώς 4 πιθανές απαντήσεις πολλαπλής επιλογής")
-    correct_index: int = Field(description="Ο δείκτης (0, 1, 2 ή 3) της σωστής απάντησης στη λίστα options")
-    explanation: str = Field(description="Σύντομη επεξήγηση (1 πρόταση) γιατί αυτή είναι η σωστή απάντηση")
+    question: str = Field(description="Σύντομη ερώτηση κατανόησης")
+    options: list[str] = Field(description="4 σύντομες επιλογές απάντησης")
+    correct_index: int = Field(description="Δείκτης 0-3 της σωστής απάντησης")
+    explanation: str = Field(description="Επεξήγηση σε 1 σύντομη πρόταση")
 
 
 class StudyGuideResponse(BaseModel):
-    title: str = Field(description="Σύντομος τίτλος ενότητας")
-    simple_explanation: str = Field(description="Καθαρή, απλή ανάλυση των σημειώσεων στα Ελληνικά σε 2-3 παραγράφους")
-    key_takeaways: list[str] = Field(description="3 έως 5 σύντομα σημεία-κλειδιά")
-    quiz: list[QuizQuestion] = Field(description="5 ερωτήσεις πολλαπλής επιλογής με 4 επιλογές")
-    extracted_text: str = Field(default="", description="Το κείμενο που εξήχθη για μελλοντικά quizzes")
+    title: str = Field(description="Σύντομος τίτλος (3-6 λέξεις)")
+    simple_explanation: str = Field(description="Απλή εξήγηση σε 2 σύντομες παραγράφους στα Ελληνικά")
+    key_takeaways: list[str] = Field(description="3 έως 4 σύντομα σημεία-κλειδιά (1 πρόταση το καθένα)")
+    quiz: list[QuizQuestion] = Field(description="5 σύντομες ερωτήσεις πολλαπλής επιλογής")
+    extracted_text: str = Field(default="", description="Το κείμενο των σημειώσεων")
 
 
 def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
-    """Διαβάζει κείμενο από PDF ή αρχείο κειμένου/κώδικα απευθείας από τη μνήμη (RAM)."""
+    """Διαβάζει κείμενο από PDF ή αρχείο κειμένου απευθείας από τη μνήμη (RAM)."""
     ext = os.path.splitext(filename)[1].lower()
     if ext == ".pdf":
         doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -62,34 +45,27 @@ def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
 
 
 def _fast_generate_config(model_name: str, system_instruction: str, schema, temperature: float):
-    """Απενεργοποιεί το thinking μόνο στα μοντέλα που το υποστηρίζουν (όχι στα lite)."""
+    kwargs = {
+        "system_instruction": system_instruction,
+        "response_mime_type": "application/json",
+        "response_schema": schema,
+        "temperature": temperature,
+        "max_output_tokens": 1400,
+    }
     if "lite" not in model_name.lower():
-        return types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=temperature,
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-        )
-    return types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        response_mime_type="application/json",
-        response_schema=schema,
-        temperature=temperature,
-    )
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    return types.GenerateContentConfig(**kwargs)
 
 
 def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
-    """Αναλύει τις σημειώσεις με απλά λόγια και παράγει διαδραστικό Quiz σε μία κλήση."""
-    trimmed_notes = notes_text[:10000]
+    """Αναλύει τις σημειώσεις και παράγει Quiz με ελάχιστο latency."""
+    trimmed_notes = notes_text[:6000]
 
     system_instruction = """
-    Είσαι μεταδοτικός καθηγητής και AI Study Assistant.
-    Πάρε τις σημειώσεις και δώσε:
-    1. Απλή, περιεκτική εξήγηση (2-3 σύντομες παράγραφοι) στα Ελληνικά.
-    2. 3 έως 5 σύντομα key takeaways.
-    3. 5 στοχευμένες ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με σύντομη επεξήγηση.
-    Να είσαι άμεσος, σαφής και περιεκτικός.
+    Είσαι AI Study Assistant. Απάντησε στα Ελληνικά, σύντομα, καθαρά και περιεκτικά:
+    1. Απλή εξήγηση του νοήματος σε 2 σύντομες παραγράφους.
+    2. 3-4 σύντομα σημεία-κλειδιά (1 πρόταση το καθένα).
+    3. 5 σύντομες ερωτήσεις κατανόησης (4 σύντομες επιλογές, 1 πρόταση επεξήγηση).
     """
 
     last_error = None
@@ -112,20 +88,19 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
 
 
 class NewQuizResponse(BaseModel):
-    quiz: list[QuizQuestion] = Field(description="5 νέες ερωτήσεις πολλαπλής επιλογής")
+    quiz: list[QuizQuestion] = Field(description="5 νέες σύντομες ερωτήσεις")
 
 
 def generate_new_quiz(notes_text: str, previous_questions: list[str] = None) -> NewQuizResponse:
-    """Παράγει ένα νέο σετ 5 ερωτήσεων αποφεύγοντας τις προηγούμενες."""
-    trimmed_notes = notes_text[:10000]
+    """Παράγει γρήγορα ένα νέο σετ 5 ερωτήσεων."""
+    trimmed_notes = notes_text[:6000]
     avoid_block = ""
     if previous_questions:
         joined = "\n".join(f"- {q}" for q in previous_questions)
-        avoid_block = f"\nΜΗΝ επαναλάβεις αυτές τις ερωτήσεις:\n{joined}\n"
+        avoid_block = f"\nΜΗΝ επαναλάβεις:\n{joined}\n"
 
     system_instruction = """
-    Δημιούργησε 5 ΝΕΕΣ, σύντομες ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία)
-    πάνω σε διαφορετικά σημεία των σημειώσεων. Απάντησε στα Ελληνικά.
+    Δημιούργησε 5 ΝΕΕΣ, σύντομες ερωτήσεις πολλαπλής επιλογής (4 σύντομες επιλογές, 1 πρόταση επεξήγηση) στα Ελληνικά.
     """
 
     last_error = None

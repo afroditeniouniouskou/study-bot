@@ -65,23 +65,24 @@ def serve_ui():
     <title>AI Study Studio — Explainer & Quiz</title>
     <style>
         :root {
-            --bg: #0b0f19;
-            --surface: #131a2a;
-            --surface-elevated: #192236;
-            --border: #25324b;
-            --text: #f1f5f9;
-            --muted: #94a3b8;
+            /* Νέα Παλέτα: Deep Forest / Obsidian + Terracotta Summary + Teal Quiz */
+            --bg: #0c1412;
+            --surface: #131f1c;
+            --surface-elevated: #1a2a26;
+            --border: #263d37;
+            --text: #f3f7f6;
+            --muted: #96b0a9;
 
-            /* Νέα παλέτα: Indigo για δράσεις/Quiz, Amber για Summary, Emerald για Επιτυχία */
-            --primary: #6366f1;
-            --primary-light: #818cf8;
-            --primary-hover: #4f46e5;
-            --summary-accent: #f59e0b;
-            --summary-bg: rgba(245, 158, 11, 0.08);
-            --quiz-accent: #818cf8;
-            --quiz-bg: rgba(99, 102, 241, 0.08);
-            --success: #10b981;
-            --danger: #f43f5e;
+            --primary: #14b8a6;
+            --primary-light: #2dd4bf;
+            --primary-hover: #0d9488;
+
+            --summary-accent: #f97316;
+            --summary-light: #fdba74;
+
+            --quiz-accent: #2dd4bf;
+            --success: #22c55e;
+            --danger: #fb7185;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
@@ -89,7 +90,7 @@ def serve_ui():
 
         header {
             padding: 16px 28px;
-            background: rgba(19, 26, 42, 0.9);
+            background: rgba(19, 31, 28, 0.92);
             backdrop-filter: blur(10px);
             border-bottom: 1px solid var(--border);
             display: flex;
@@ -99,14 +100,14 @@ def serve_ui():
             top: 0;
             z-index: 20;
         }
-        header h1 { font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 10px; letter-spacing: -0.01em; }
+        header h1 { font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
         .badge {
             font-size: 0.72rem;
-            background: rgba(99, 102, 241, 0.16);
+            background: rgba(20, 184, 166, 0.16);
             color: var(--primary-light);
             padding: 4px 11px;
             border-radius: 999px;
-            border: 1px solid rgba(129, 140, 248, 0.35);
+            border: 1px solid rgba(45, 212, 191, 0.35);
             font-weight: 600;
         }
         .header-reset-btn {
@@ -131,7 +132,7 @@ def serve_ui():
             border: 1px solid var(--border);
             border-radius: 16px;
             padding: 26px;
-            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
         }
         .panel-header {
             display: flex;
@@ -155,7 +156,7 @@ def serve_ui():
             outline: none;
             transition: 0.2s;
         }
-        textarea:focus { border-color: var(--primary-light); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
+        textarea:focus { border-color: var(--primary-light); box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.16); }
         .controls { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 16px; }
         .file-label {
             display: inline-flex;
@@ -174,30 +175,30 @@ def serve_ui():
 
         button.primary {
             background: linear-gradient(135deg, var(--primary), var(--primary-hover));
-            color: white;
-            font-weight: 600;
+            color: #042f2e;
+            font-weight: 700;
             border: none;
             padding: 12px 24px;
             border-radius: 10px;
             cursor: pointer;
             font-size: 0.96rem;
-            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+            box-shadow: 0 4px 14px rgba(20, 184, 166, 0.3);
             transition: 0.2s;
         }
-        button.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45); }
+        button.primary:hover { transform: translateY(-1px); color: white; box-shadow: 0 6px 20px rgba(20, 184, 166, 0.45); }
         button.primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
-        .demo-link { font-size: 0.84rem; color: var(--primary-light); cursor: pointer; text-decoration: none; background: none; border: none; font-weight: 500; }
+        .demo-link { font-size: 0.84rem; color: var(--summary-light); cursor: pointer; text-decoration: none; background: none; border: none; font-weight: 500; }
         .demo-link:hover { text-decoration: underline; }
 
-        /* --- SECTION 1: SUMMARY CARD (Θερμό Amber / Study Guide Look) --- */
+        /* --- SECTION 1: SUMMARY CARD (Terracotta / Coral Theme) --- */
         .summary-panel {
-            background: linear-gradient(180deg, rgba(245, 158, 11, 0.06) 0%, var(--surface) 140px);
-            border: 1px solid rgba(245, 158, 11, 0.3);
+            background: linear-gradient(180deg, rgba(249, 115, 22, 0.08) 0%, var(--surface) 150px);
+            border: 1px solid rgba(249, 115, 22, 0.32);
             border-left: 5px solid var(--summary-accent);
             border-radius: 16px;
             padding: 26px;
-            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
         }
         .section-tag {
             display: inline-flex;
@@ -211,22 +212,22 @@ def serve_ui():
             border-radius: 6px;
             margin-bottom: 10px;
         }
-        .tag-summary { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
-        .tag-quiz { background: rgba(99, 102, 241, 0.18); color: #a5b4fc; }
+        .tag-summary { background: rgba(249, 115, 22, 0.18); color: var(--summary-light); }
+        .tag-quiz { background: rgba(20, 184, 166, 0.18); color: #5eead4; }
 
-        .summary-title { font-size: 1.35rem; font-weight: 700; color: #fef3c7; margin-bottom: 16px; }
+        .summary-title { font-size: 1.35rem; font-weight: 700; color: #ffedd5; margin-bottom: 16px; }
         .explanation-text {
             line-height: 1.8;
             font-size: 1.02rem;
             white-space: pre-wrap;
-            color: #e2e8f0;
-            background: rgba(11, 15, 25, 0.45);
+            color: #e6efed;
+            background: rgba(12, 20, 18, 0.55);
             padding: 18px;
             border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.06);
         }
         .takeaways { margin-top: 22px; }
-        .takeaways h3 { font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.05em; color: #fbbf24; margin-bottom: 12px; }
+        .takeaways h3 { font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--summary-light); margin-bottom: 12px; }
         .takeaways-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
         .takeaway-item {
             background: var(--surface-elevated);
@@ -236,17 +237,17 @@ def serve_ui():
             border-left: 3px solid var(--summary-accent);
             font-size: 0.93rem;
             line-height: 1.5;
-            color: #f8fafc;
+            color: var(--text);
         }
 
-        /* --- SECTION 2: QUIZ ARENA (Indigo / Violet Interactive Look) --- */
+        /* --- SECTION 2: QUIZ ARENA (Teal / Mint Theme) --- */
         .quiz-panel {
-            background: linear-gradient(180deg, rgba(99, 102, 241, 0.07) 0%, var(--surface) 140px);
-            border: 1px solid rgba(129, 140, 248, 0.35);
+            background: linear-gradient(180deg, rgba(20, 184, 166, 0.08) 0%, var(--surface) 150px);
+            border: 1px solid rgba(45, 212, 191, 0.32);
             border-top: 4px solid var(--primary);
             border-radius: 16px;
             padding: 26px;
-            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
         }
         .quiz-header-row {
             display: flex;
@@ -256,20 +257,20 @@ def serve_ui():
             gap: 12px;
             margin-bottom: 18px;
         }
-        .quiz-main-title { font-size: 1.3rem; font-weight: 700; color: #e0e7ff; }
+        .quiz-main-title { font-size: 1.3rem; font-weight: 700; color: #ccfbf1; }
         .score-pill {
-            background: rgba(99, 102, 241, 0.18);
-            color: #c7d2fe;
-            border: 1px solid rgba(129, 140, 248, 0.35);
+            background: rgba(20, 184, 166, 0.16);
+            color: #99f6e4;
+            border: 1px solid rgba(45, 212, 191, 0.35);
             padding: 6px 14px;
             border-radius: 999px;
             font-size: 0.88rem;
             font-weight: 600;
         }
         .score-pill.completed {
-            background: rgba(16, 185, 129, 0.18);
-            color: #6ee7b7;
-            border-color: rgba(16, 185, 129, 0.4);
+            background: rgba(34, 197, 94, 0.18);
+            color: #86efac;
+            border-color: rgba(34, 197, 94, 0.45);
         }
 
         .quiz-card {
@@ -290,9 +291,9 @@ def serve_ui():
         }
         .q-num {
             background: var(--primary);
-            color: white;
-            font-size: 0.8rem;
-            font-weight: 700;
+            color: #042f2e;
+            font-size: 0.82rem;
+            font-weight: 800;
             min-width: 26px;
             height: 26px;
             border-radius: 8px;
@@ -316,17 +317,17 @@ def serve_ui():
         .option-btn:hover:not(:disabled) { border-color: var(--primary-light); background: var(--surface-elevated); }
         .option-btn.selected {
             border-color: var(--primary-light);
-            background: rgba(99, 102, 241, 0.22);
-            color: #eef2ff;
+            background: rgba(20, 184, 166, 0.22);
+            color: #f0fdfa;
             font-weight: 600;
         }
-        .option-btn.correct { background: rgba(16, 185, 129, 0.2); border-color: var(--success); color: #a7f3d0; font-weight: 600; }
-        .option-btn.wrong { background: rgba(244, 63, 94, 0.2); border-color: var(--danger); color: #fecdd3; }
+        .option-btn.correct { background: rgba(34, 197, 94, 0.2); border-color: var(--success); color: #bbf7d0; font-weight: 600; }
+        .option-btn.wrong { background: rgba(251, 113, 133, 0.2); border-color: var(--danger); color: #ffe4e6; }
 
         .quiz-feedback {
             margin-top: 12px;
             font-size: 0.92rem;
-            color: #cbd5e1;
+            color: #d1e3df;
             padding: 12px 14px;
             border-radius: 10px;
             background: var(--surface-elevated);
@@ -336,9 +337,9 @@ def serve_ui():
         }
 
         button.submit-quiz-btn {
-            background: linear-gradient(135deg, var(--success), #059669);
-            color: white;
-            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            color: #042f2e;
+            font-weight: 800;
             border: none;
             padding: 14px 24px;
             border-radius: 10px;
@@ -346,10 +347,10 @@ def serve_ui():
             font-size: 1rem;
             margin-top: 22px;
             width: 100%;
-            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+            box-shadow: 0 4px 14px rgba(20, 184, 166, 0.3);
             transition: 0.2s;
         }
-        button.submit-quiz-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4); }
+        button.submit-quiz-btn:hover { transform: translateY(-1px); color: white; box-shadow: 0 6px 20px rgba(20, 184, 166, 0.45); }
         button.submit-quiz-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         /* Next Steps Card */
@@ -374,23 +375,22 @@ def serve_ui():
             border: 1px solid var(--border);
             transition: 0.2s;
         }
-        .btn-retry { background: rgba(245, 158, 11, 0.16); color: #fcd34d; border-color: rgba(245, 158, 11, 0.4); }
-        .btn-retry:hover { background: rgba(245, 158, 11, 0.28); }
-        .btn-new-quiz { background: rgba(99, 102, 241, 0.18); color: #c7d2fe; border-color: rgba(129, 140, 248, 0.45); }
-        .btn-new-quiz:hover { background: rgba(99, 102, 241, 0.32); }
+        .btn-retry { background: rgba(249, 115, 22, 0.18); color: var(--summary-light); border-color: rgba(249, 115, 22, 0.45); }
+        .btn-retry:hover { background: rgba(249, 115, 22, 0.3); }
+        .btn-new-quiz { background: rgba(20, 184, 166, 0.18); color: #99f6e4; border-color: rgba(45, 212, 191, 0.45); }
+        .btn-new-quiz:hover { background: rgba(20, 184, 166, 0.32); }
         .btn-new-quiz:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-next-chapter { background: var(--primary); color: white; border: none; }
-        .btn-next-chapter:hover { background: var(--primary-hover); }
+        .btn-next-chapter { background: var(--primary); color: #042f2e; font-weight: 700; border: none; }
+        .btn-next-chapter:hover { background: var(--primary-hover); color: white; }
     </style>
 </head>
 <body>
     <header>
-        <h1>✨ AI Study Studio <span class="badge">Summary + Interactive Quiz</span></h1>
+        <h1>🌿 AI Study Studio <span class="badge">Summary + Interactive Quiz</span></h1>
         <button class="header-reset-btn" id="header-new-notes-btn" onclick="startNextChapter()">📝 Νέες Σημειώσεις / Αρχείο</button>
     </header>
 
     <div class="container">
-        <!-- INPUT PANEL (Κρύβεται αυτόματα μόλις φορτώσει το μάθημα) -->
         <div class="input-panel" id="input-panel">
             <div class="panel-header">
                 <span class="panel-title">Επικόλλησε τις σημειώσεις σου ή ανέβασε αρχείο</span>
@@ -407,10 +407,9 @@ def serve_ui():
             </div>
         </div>
 
-        <!-- RESULTS AREA -->
         <div id="results-area" style="display:none; flex-direction: column; gap: 30px;">
 
-            <!-- ENOTHTA 1: SUMMARY (Amber Theme) -->
+            <!-- ENOTHTA 1: SUMMARY (Terracotta Theme) -->
             <section class="summary-panel">
                 <span class="section-tag tag-summary">📖 Ενότητα 1 · Θεωρία & Σύνοψη</span>
                 <h2 class="summary-title" id="result-title">Απλή Επεξήγηση</h2>
@@ -422,7 +421,7 @@ def serve_ui():
                 </div>
             </section>
 
-            <!-- ENOTHTA 2: QUIZ (Indigo Theme) -->
+            <!-- ENOTHTA 2: QUIZ (Teal Theme) -->
             <section class="quiz-panel">
                 <div class="quiz-header-row">
                     <div>
@@ -502,7 +501,6 @@ def serve_ui():
         }
 
         function renderResults(data) {
-            // Κρύβουμε το πεδίο επικόλλησης/ανεβάσματος και δείχνουμε το κουμπί στο header
             document.getElementById('input-panel').style.display = 'none';
             document.getElementById('header-new-notes-btn').style.display = 'inline-block';
 
@@ -683,7 +681,6 @@ def serve_ui():
             updateFileName();
             activeNotesText = '';
 
-            // Επαναφέρουμε το input panel και κρύβουμε τα αποτελέσματα
             document.getElementById('results-area').style.display = 'none';
             document.getElementById('header-new-notes-btn').style.display = 'none';
             document.getElementById('input-panel').style.display = 'block';
