@@ -1,6 +1,6 @@
 import os
 import time
-import fitz  # PyMuPDF για άμεση ανάγνωση PDF στη RAM
+import pymupdf as fitz  # PyMuPDF για άμεση ανάγνωση PDF στη RAM
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
@@ -14,8 +14,9 @@ client = genai.Client(
 )
 
 ACTIVE_MODELS = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
+    "gemini-3.8-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-pro-preview",
 ]
 
 
