@@ -1,5 +1,4 @@
 import os
-import time
 import pymupdf as fitz
 from google import genai
 from google.genai import types
@@ -15,25 +14,26 @@ client = genai.Client(
 
 
 def get_available_flash_models() -> list[str]:
-    """Εντοπίζει δυναμικά τα ενεργά γρήγορα μοντέλα (flash) του API key."""
+    """Εντοπίζει τα ενεργά μοντέλα σειράς 3+ (flash) με προτεραιότητα στο gemini-3.8-flash."""
     discovered = []
     try:
         for m in client.models.list():
             name = (m.name or "").replace("models/", "")
             actions = getattr(m, "supported_actions", None) or []
             if "generateContent" in actions and "flash" in name.lower():
-                if not any(x in name.lower() for x in ["image", "audio", "tts", "live", "embedding"]):
+                # Αγνοούμε παλιά 2.x (που δίνουν 404) και εξειδικευμένα (image/audio/live)
+                if not any(x in name.lower() for x in ["2.0", "2.5", "image", "audio", "tts", "live", "embedding"]):
                     discovered.append(name)
     except Exception as e:
         print(f"⚠️ Σφάλμα κατά το list models: {e}", flush=True)
 
-    # Προτεραιότητα στα flash-lite (ταχύτερα) και έπειτα στα flash
-    discovered.sort(key=lambda x: (0 if "lite" in x else 1, x), reverse=False)
-    return discovered or ["gemini-3.1-flash-lite", "gemini-3.8-flash"]
+    # Προτεραιότητα: 1) gemini-3.8-flash, 2) τα υπόλοιπα νεότερα flash (non-lite), 3) lite backups
+    discovered.sort(key=lambda x: (0 if "3.8-flash" in x else (1 if "lite" not in x else 2), x))
+    return discovered or ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
 
 
 ACTIVE_MODELS = get_available_flash_models()
-print(f"✅ Ενεργά μοντέλα (με σειρά ταχύτητας): {ACTIVE_MODELS}", flush=True)
+print(f"✅ Ενεργά μοντέλα (βελτιστοποιημένη σειρά): {ACTIVE_MODELS}", flush=True)
 
 
 class QuizQuestion(BaseModel):
@@ -61,9 +61,9 @@ def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
     return file_bytes.decode("utf-8", errors="ignore").strip()
 
 
-def _fast_generate_config(system_instruction: str, schema, temperature: float):
-    """Ρύθμιση για μέγιστη ταχύτητα απόκρισης χωρίς χρονοβόρο thinking."""
-    try:
+def _fast_generate_config(model_name: str, system_instruction: str, schema, temperature: float):
+    """Απενεργοποιεί το thinking μόνο στα μοντέλα που το υποστηρίζουν (όχι στα lite)."""
+    if "lite" not in model_name.lower():
         return types.GenerateContentConfig(
             system_instruction=system_instruction,
             response_mime_type="application/json",
@@ -71,13 +71,12 @@ def _fast_generate_config(system_instruction: str, schema, temperature: float):
             temperature=temperature,
             thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
-    except Exception:
-        return types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=temperature,
-        )
+    return types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        response_mime_type="application/json",
+        response_schema=schema,
+        temperature=temperature,
+    )
 
 
 def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
@@ -99,7 +98,7 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
             response = client.models.generate_content(
                 model=model_name,
                 contents=f"ΣΗΜΕΙΩΣΕΙΣ:\n{trimmed_notes}",
-                config=_fast_generate_config(system_instruction, StudyGuideResponse, 0.2),
+                config=_fast_generate_config(model_name, system_instruction, StudyGuideResponse, 0.2),
             )
             result = StudyGuideResponse.model_validate_json(response.text)
             result.extracted_text = trimmed_notes
@@ -135,7 +134,7 @@ def generate_new_quiz(notes_text: str, previous_questions: list[str] = None) -> 
             response = client.models.generate_content(
                 model=model_name,
                 contents=f"ΣΗΜΕΙΩΣΕΙΣ:\n{trimmed_notes}\n{avoid_block}",
-                config=_fast_generate_config(system_instruction, NewQuizResponse, 0.4),
+                config=_fast_generate_config(model_name, system_instruction, NewQuizResponse, 0.4),
             )
             return NewQuizResponse.model_validate_json(response.text)
         except Exception as e:
