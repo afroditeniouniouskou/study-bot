@@ -146,9 +146,12 @@ def serve_ui():
             const div = document.createElement('div');
             div.className = 'msg bot-msg';
 
-            const statusHtml = data.found_in_notes
-                ? `<span class="status-tag found">✓ Βρέθηκε στις σημειώσεις</span>`
-                : `<span class="status-tag not-found">⚠ Δεν βρέθηκε ρητά στις σημειώσεις</span>`;
+            let statusHtml = '';
+            if (!data.isError) {
+                statusHtml = data.found_in_notes
+                    ? `<span class="status-tag found">✓ Βρέθηκε στις σημειώσεις</span>`
+                    : `<span class="status-tag not-found">⚠ Δεν βρέθηκε ρητά στις σημειώσεις</span>`;
+            }
 
             let citationsHtml = '';
             if (data.citations && data.citations.length > 0) {
@@ -175,10 +178,11 @@ def serve_ui():
             const input = document.getElementById('question-input');
             const btn = document.getElementById('send-btn');
             const question = input.value.trim();
-            if (!question) return;
+            if (!question || btn.disabled) return;
 
             appendUserMessage(question);
             input.value = '';
+            input.disabled = true;
             btn.disabled = true;
             btn.textContent = 'Αναζήτηση...';
 
@@ -186,6 +190,7 @@ def serve_ui():
             loadingDiv.className = 'msg bot-msg';
             loadingDiv.textContent = '⏳ Αναζήτηση στις σημειώσεις και σύνταξη απάντησης...';
             chat.appendChild(loadingDiv);
+            chat.scrollTop = chat.scrollHeight;
 
             try {
                 const res = await fetch('/api/ask', {
@@ -193,16 +198,26 @@ def serve_ui():
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ question })
                 });
-                const data = await res.json();
-                chat.removeChild(loadingDiv);
+
+                const rawText = await res.text();
+                let data;
+                try {
+                    data = JSON.parse(rawText);
+                } catch {
+                    throw new Error(`Ο server καθυστέρησε ή επέστρεψε μη έγκυρη απάντηση (HTTP ${res.status}). Δοκίμασε ξανά.`);
+                }
+
+                loadingDiv.remove();
                 if (!res.ok) throw new Error(data.detail || 'Σφάλμα διακομιστή');
                 appendBotMessage(data);
             } catch (err) {
-                chat.removeChild(loadingDiv);
-                appendBotMessage({ answer: '❌ Σφάλμα: ' + err.message, found_in_notes: false, citations: [] });
+                loadingDiv.remove();
+                appendBotMessage({ answer: '❌ Σφάλμα: ' + err.message, found_in_notes: false, citations: [], isError: true });
             } finally {
+                input.disabled = false;
                 btn.disabled = false;
                 btn.textContent = 'Αποστολή';
+                input.focus();
             }
         }
 
@@ -219,8 +234,15 @@ def serve_ui():
 
             try {
                 const res = await fetch('/api/upload', { method: 'POST', body: formData });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail);
+                const rawText = await res.text();
+                let data;
+                try {
+                    data = JSON.parse(rawText);
+                } catch {
+                    throw new Error(`Ο server καθυστέρησε κατά την επεξεργασία (HTTP ${res.status}).`);
+                }
+
+                if (!res.ok) throw new Error(data.detail || 'Σφάλμα ανεβάσματος');
                 alert('✅ ' + data.message);
                 fileInput.value = '';
             } catch (err) {
