@@ -62,140 +62,376 @@ def serve_ui():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Study Explainer & Quiz Generator</title>
+    <title>AI Study Studio — Explainer & Quiz</title>
     <style>
         :root {
-            --bg: #0f172a;
-            --card: #1e293b;
-            --card-inner: #0f172a;
-            --border: #334155;
-            --text: #f8fafc;
+            --bg: #0b0f19;
+            --surface: #131a2a;
+            --surface-elevated: #192236;
+            --border: #25324b;
+            --text: #f1f5f9;
             --muted: #94a3b8;
-            --accent: #38bdf8;
-            --accent-hover: #0284c7;
-            --success: #22c55e;
-            --danger: #ef4444;
+
+            /* Νέα παλέτα: Indigo για δράσεις/Quiz, Amber για Summary, Emerald για Επιτυχία */
+            --primary: #6366f1;
+            --primary-light: #818cf8;
+            --primary-hover: #4f46e5;
+            --summary-accent: #f59e0b;
+            --summary-bg: rgba(245, 158, 11, 0.08);
+            --quiz-accent: #818cf8;
+            --quiz-bg: rgba(99, 102, 241, 0.08);
+            --success: #10b981;
+            --danger: #f43f5e;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-        body { background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 60px; }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; }
+        body { background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 70px; }
+
         header {
-            padding: 18px 24px; background: var(--card); border-bottom: 1px solid var(--border);
-            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 28px;
+            background: rgba(19, 26, 42, 0.9);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 20;
         }
-        header h1 { font-size: 1.25rem; display: flex; align-items: center; gap: 10px; }
-        .badge { font-size: 0.75rem; background: rgba(56, 189, 248, 0.15); color: var(--accent); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(56, 189, 248, 0.3); }
-        .container { max-width: 880px; margin: 28px auto; padding: 0 20px; display: flex; flex-direction: column; gap: 24px; }
-        .panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
-        .panel-title { font-size: 1rem; font-weight: 600; margin-bottom: 12px; color: var(--accent); display: flex; justify-content: space-between; align-items: center; }
-        textarea {
-            width: 100%; min-height: 150px; padding: 14px; border-radius: 10px;
-            border: 1px solid var(--border); background: var(--card-inner); color: var(--text);
-            font-size: 0.98rem; line-height: 1.5; resize: vertical; outline: none;
-        }
-        textarea:focus { border-color: var(--accent); }
-        .controls { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
-        .file-label {
-            display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px;
-            background: var(--card-inner); border: 1px dashed var(--border); border-radius: 8px;
-            cursor: pointer; font-size: 0.9rem; color: var(--muted); transition: 0.2s;
-        }
-        .file-label:hover { border-color: var(--accent); color: var(--text); }
-        button.primary {
-            background: var(--accent); color: #0f172a; font-weight: 700; border: none;
-            padding: 11px 22px; border-radius: 8px; cursor: pointer; font-size: 0.95rem; transition: 0.2s;
-        }
-        button.primary:hover { background: var(--accent-hover); color: white; }
-        button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
-        button.submit-quiz-btn {
-            background: var(--success); color: #052e16; font-weight: 700; border: none;
-            padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 0.98rem;
-            margin-top: 18px; width: 100%; transition: 0.2s;
-        }
-        button.submit-quiz-btn:hover { background: #16a34a; color: white; }
-        button.submit-quiz-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .demo-link { font-size: 0.82rem; color: var(--accent); cursor: pointer; text-decoration: underline; background: none; border: none; }
-        .explanation-text { line-height: 1.75; font-size: 1.02rem; white-space: pre-wrap; color: #e2e8f0; }
-        .takeaways { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
-        .takeaways h3 { font-size: 0.92rem; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
-        .takeaways ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-        .takeaways li { background: rgba(15, 23, 42, 0.5); padding: 10px 14px; border-radius: 8px; border-left: 3px solid var(--accent); font-size: 0.95rem; }
-        .quiz-card { background: var(--card-inner); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-top: 14px; }
-        .quiz-q { font-weight: 600; font-size: 1rem; margin-bottom: 12px; }
-        .options { display: flex; flex-direction: column; gap: 8px; }
-        .option-btn {
-            text-align: left; padding: 11px 14px; border-radius: 8px; border: 1px solid var(--border);
-            background: var(--card); color: var(--text); cursor: pointer; font-size: 0.94rem; transition: 0.15s;
-        }
-        .option-btn:hover:not(:disabled) { border-color: var(--accent); background: rgba(56, 189, 248, 0.08); }
-        .option-btn.selected {
-            border-color: var(--accent);
-            background: rgba(56, 189, 248, 0.2);
-            color: #e0f2fe;
+        header h1 { font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 10px; letter-spacing: -0.01em; }
+        .badge {
+            font-size: 0.72rem;
+            background: rgba(99, 102, 241, 0.16);
+            color: var(--primary-light);
+            padding: 4px 11px;
+            border-radius: 999px;
+            border: 1px solid rgba(129, 140, 248, 0.35);
             font-weight: 600;
         }
-        .option-btn.correct { background: rgba(34, 197, 94, 0.22); border-color: var(--success); color: #bbf7d0; font-weight: 600; }
-        .option-btn.wrong { background: rgba(239, 68, 68, 0.22); border-color: var(--danger); color: #fecaca; }
-        .quiz-feedback { margin-top: 10px; font-size: 0.9rem; color: var(--muted); padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,0.04); display: none; }
-        .score-pill { background: rgba(34, 197, 94, 0.15); color: var(--success); padding: 4px 12px; border-radius: 999px; font-size: 0.85rem; }
-
-        /* Κάρτα επόμενων βημάτων μετά την υποβολή */
-        .next-steps-box {
-            margin-top: 22px; padding: 20px; border-radius: 12px;
-            background: rgba(15, 23, 42, 0.85); border: 1px solid var(--accent);
-            display: none; flex-direction: column; gap: 14px;
+        .header-reset-btn {
+            display: none;
+            background: var(--surface-elevated);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 7px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
         }
-        .next-steps-msg { font-size: 1.02rem; line-height: 1.5; color: #f8fafc; }
+        .header-reset-btn:hover { border-color: var(--primary-light); color: var(--primary-light); }
+
+        .container { max-width: 900px; margin: 32px auto; padding: 0 20px; display: flex; flex-direction: column; gap: 28px; }
+
+        /* Input Panel */
+        .input-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 26px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+        }
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            gap: 12px;
+        }
+        .panel-title { font-size: 1.05rem; font-weight: 600; color: var(--text); }
+        textarea {
+            width: 100%;
+            min-height: 170px;
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.98rem;
+            line-height: 1.6;
+            resize: vertical;
+            outline: none;
+            transition: 0.2s;
+        }
+        textarea:focus { border-color: var(--primary-light); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
+        .controls { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 16px; }
+        .file-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: var(--bg);
+            border: 1px dashed var(--border);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: var(--muted);
+            transition: 0.2s;
+        }
+        .file-label:hover { border-color: var(--primary-light); color: var(--text); }
+
+        button.primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            color: white;
+            font-weight: 600;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.96rem;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+            transition: 0.2s;
+        }
+        button.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45); }
+        button.primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+        .demo-link { font-size: 0.84rem; color: var(--primary-light); cursor: pointer; text-decoration: none; background: none; border: none; font-weight: 500; }
+        .demo-link:hover { text-decoration: underline; }
+
+        /* --- SECTION 1: SUMMARY CARD (Θερμό Amber / Study Guide Look) --- */
+        .summary-panel {
+            background: linear-gradient(180deg, rgba(245, 158, 11, 0.06) 0%, var(--surface) 140px);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-left: 5px solid var(--summary-accent);
+            border-radius: 16px;
+            padding: 26px;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+        }
+        .section-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 4px 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        .tag-summary { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+        .tag-quiz { background: rgba(99, 102, 241, 0.18); color: #a5b4fc; }
+
+        .summary-title { font-size: 1.35rem; font-weight: 700; color: #fef3c7; margin-bottom: 16px; }
+        .explanation-text {
+            line-height: 1.8;
+            font-size: 1.02rem;
+            white-space: pre-wrap;
+            color: #e2e8f0;
+            background: rgba(11, 15, 25, 0.45);
+            padding: 18px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .takeaways { margin-top: 22px; }
+        .takeaways h3 { font-size: 0.88rem; text-transform: uppercase; letter-spacing: 0.05em; color: #fbbf24; margin-bottom: 12px; }
+        .takeaways-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+        .takeaway-item {
+            background: var(--surface-elevated);
+            padding: 12px 15px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--summary-accent);
+            font-size: 0.93rem;
+            line-height: 1.5;
+            color: #f8fafc;
+        }
+
+        /* --- SECTION 2: QUIZ ARENA (Indigo / Violet Interactive Look) --- */
+        .quiz-panel {
+            background: linear-gradient(180deg, rgba(99, 102, 241, 0.07) 0%, var(--surface) 140px);
+            border: 1px solid rgba(129, 140, 248, 0.35);
+            border-top: 4px solid var(--primary);
+            border-radius: 16px;
+            padding: 26px;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+        }
+        .quiz-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .quiz-main-title { font-size: 1.3rem; font-weight: 700; color: #e0e7ff; }
+        .score-pill {
+            background: rgba(99, 102, 241, 0.18);
+            color: #c7d2fe;
+            border: 1px solid rgba(129, 140, 248, 0.35);
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 0.88rem;
+            font-weight: 600;
+        }
+        .score-pill.completed {
+            background: rgba(16, 185, 129, 0.18);
+            color: #6ee7b7;
+            border-color: rgba(16, 185, 129, 0.4);
+        }
+
+        .quiz-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 20px;
+            margin-top: 16px;
+        }
+        .quiz-q {
+            font-weight: 600;
+            font-size: 1.02rem;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            line-height: 1.5;
+        }
+        .q-num {
+            background: var(--primary);
+            color: white;
+            font-size: 0.8rem;
+            font-weight: 700;
+            min-width: 26px;
+            height: 26px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 2px;
+        }
+        .options { display: flex; flex-direction: column; gap: 9px; }
+        .option-btn {
+            text-align: left;
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: 0.15s;
+        }
+        .option-btn:hover:not(:disabled) { border-color: var(--primary-light); background: var(--surface-elevated); }
+        .option-btn.selected {
+            border-color: var(--primary-light);
+            background: rgba(99, 102, 241, 0.22);
+            color: #eef2ff;
+            font-weight: 600;
+        }
+        .option-btn.correct { background: rgba(16, 185, 129, 0.2); border-color: var(--success); color: #a7f3d0; font-weight: 600; }
+        .option-btn.wrong { background: rgba(244, 63, 94, 0.2); border-color: var(--danger); color: #fecdd3; }
+
+        .quiz-feedback {
+            margin-top: 12px;
+            font-size: 0.92rem;
+            color: #cbd5e1;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: var(--surface-elevated);
+            border-left: 3px solid var(--primary-light);
+            display: none;
+            line-height: 1.5;
+        }
+
+        button.submit-quiz-btn {
+            background: linear-gradient(135deg, var(--success), #059669);
+            color: white;
+            font-weight: 700;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin-top: 22px;
+            width: 100%;
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+            transition: 0.2s;
+        }
+        button.submit-quiz-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4); }
+        button.submit-quiz-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Next Steps Card */
+        .next-steps-box {
+            margin-top: 24px;
+            padding: 22px;
+            border-radius: 14px;
+            background: var(--surface-elevated);
+            border: 1px solid var(--primary-light);
+            display: none;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .next-steps-msg { font-size: 1.03rem; line-height: 1.6; color: var(--text); }
         .next-steps-actions { display: flex; flex-wrap: wrap; gap: 10px; }
         .action-btn {
-            padding: 10px 16px; border-radius: 8px; font-weight: 600; font-size: 0.9rem;
-            cursor: pointer; border: 1px solid var(--border); transition: 0.2s;
+            padding: 11px 18px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.92rem;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            transition: 0.2s;
         }
-        .btn-retry { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border-color: rgba(245, 158, 11, 0.4); }
-        .btn-retry:hover { background: rgba(245, 158, 11, 0.3); }
-        .btn-new-quiz { background: rgba(56, 189, 248, 0.18); color: #7dd3fc; border-color: rgba(56, 189, 248, 0.4); }
-        .btn-new-quiz:hover { background: rgba(56, 189, 248, 0.3); }
+        .btn-retry { background: rgba(245, 158, 11, 0.16); color: #fcd34d; border-color: rgba(245, 158, 11, 0.4); }
+        .btn-retry:hover { background: rgba(245, 158, 11, 0.28); }
+        .btn-new-quiz { background: rgba(99, 102, 241, 0.18); color: #c7d2fe; border-color: rgba(129, 140, 248, 0.45); }
+        .btn-new-quiz:hover { background: rgba(99, 102, 241, 0.32); }
         .btn-new-quiz:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-next-chapter { background: var(--accent); color: #0f172a; border: none; }
-        .btn-next-chapter:hover { background: var(--accent-hover); color: white; }
+        .btn-next-chapter { background: var(--primary); color: white; border: none; }
+        .btn-next-chapter:hover { background: var(--primary-hover); }
     </style>
 </head>
 <body>
     <header>
-        <h1>🧠 AI Study Explainer & Quiz <span class="badge">Instant Comprehension</span></h1>
+        <h1>✨ AI Study Studio <span class="badge">Summary + Interactive Quiz</span></h1>
+        <button class="header-reset-btn" id="header-new-notes-btn" onclick="startNextChapter()">📝 Νέες Σημειώσεις / Αρχείο</button>
     </header>
 
     <div class="container">
-        <div class="panel" id="input-panel">
-            <div class="panel-title">
-                <span>1. Επικόλλησε τις σημειώσεις σου ή ανέβασε αρχείο</span>
+        <!-- INPUT PANEL (Κρύβεται αυτόματα μόλις φορτώσει το μάθημα) -->
+        <div class="input-panel" id="input-panel">
+            <div class="panel-header">
+                <span class="panel-title">Επικόλλησε τις σημειώσεις σου ή ανέβασε αρχείο</span>
                 <button type="button" class="demo-link" onclick="fillDemoNotes()">Γέμισμα με παράδειγμα σημειώσεων</button>
             </div>
             <textarea id="notes-input" placeholder="Γράψε ή κάνε επικόλληση (Ctrl+V) τις σημειώσεις σου εδώ..."></textarea>
 
             <div class="controls">
                 <label class="file-label">
-                    📎 <span id="file-name">Προαιρετικά: Ανέβασε .pdf, .txt ή .py</span>
+                    📎 <span id="file-name">Ανέβασε .pdf, .txt ή .py</span>
                     <input type="file" id="file-input" accept=".pdf,.txt,.py,.md" style="display:none" onchange="updateFileName()">
                 </label>
-                <button class="primary" id="generate-btn" onclick="generateStudy()">✨ Εξήγηση & Δημιουργία Quiz</button>
+                <button class="primary" id="generate-btn" onclick="generateStudy()">🚀 Ανάλυση & Δημιουργία Quiz</button>
             </div>
         </div>
 
-        <div id="results-area" style="display:none; flex-direction: column; gap: 24px;">
-            <div class="panel">
-                <div class="panel-title" id="result-title">📖 Απλή Επεξήγηση</div>
+        <!-- RESULTS AREA -->
+        <div id="results-area" style="display:none; flex-direction: column; gap: 30px;">
+
+            <!-- ENOTHTA 1: SUMMARY (Amber Theme) -->
+            <section class="summary-panel">
+                <span class="section-tag tag-summary">📖 Ενότητα 1 · Θεωρία & Σύνοψη</span>
+                <h2 class="summary-title" id="result-title">Απλή Επεξήγηση</h2>
                 <div class="explanation-text" id="explanation-box"></div>
+
                 <div class="takeaways">
                     <h3>🔑 Βασικά Σημεία-Κλειδιά</h3>
-                    <ul id="takeaways-list"></ul>
+                    <div class="takeaways-grid" id="takeaways-list"></div>
                 </div>
-            </div>
+            </section>
 
-            <div class="panel">
-                <div class="panel-title">
-                    <span>🎯 Quiz Αυτοαξιολόγησης</span>
+            <!-- ENOTHTA 2: QUIZ (Indigo Theme) -->
+            <section class="quiz-panel">
+                <div class="quiz-header-row">
+                    <div>
+                        <span class="section-tag tag-quiz">🎯 Ενότητα 2 · Εξάσκηση</span>
+                        <h2 class="quiz-main-title">Quiz Αυτοαξιολόγησης</h2>
+                    </div>
                     <span class="score-pill" id="score-display">Επιλεγμένα: 0 / 0</span>
                 </div>
+
                 <div id="quiz-container"></div>
                 <button class="submit-quiz-btn" id="submit-quiz-btn" onclick="submitQuiz()">✅ Υποβολή Quiz & Έλεγχος Αποτελεσμάτων</button>
 
@@ -207,7 +443,8 @@ def serve_ui():
                         <button class="action-btn btn-next-chapter" onclick="startNextChapter()">📚 Επόμενο Κεφάλαιο (νέες σημειώσεις)</button>
                     </div>
                 </div>
-            </div>
+            </section>
+
         </div>
     </div>
 
@@ -220,7 +457,7 @@ def serve_ui():
         function updateFileName() {
             const input = document.getElementById('file-input');
             const label = document.getElementById('file-name');
-            label.textContent = input.files.length ? input.files[0].name : 'Προαιρετικά: Ανέβασε .pdf, .txt ή .py';
+            label.textContent = input.files.length ? input.files[0].name : 'Ανέβασε .pdf, .txt ή .py';
         }
 
         function fillDemoNotes() {
@@ -260,20 +497,24 @@ def serve_ui():
                 alert('❌ ' + err.message);
             } finally {
                 btn.disabled = false;
-                btn.textContent = '✨ Εξήγηση & Δημιουργία Quiz';
+                btn.textContent = '🚀 Ανάλυση & Δημιουργία Quiz';
             }
         }
 
         function renderResults(data) {
+            // Κρύβουμε το πεδίο επικόλλησης/ανεβάσματος και δείχνουμε το κουμπί στο header
+            document.getElementById('input-panel').style.display = 'none';
+            document.getElementById('header-new-notes-btn').style.display = 'inline-block';
+
             document.getElementById('results-area').style.display = 'flex';
-            document.getElementById('result-title').textContent = '📖 ' + data.title;
+            document.getElementById('result-title').textContent = data.title;
             document.getElementById('explanation-box').textContent = data.simple_explanation;
 
             const list = document.getElementById('takeaways-list');
-            list.innerHTML = data.key_takeaways.map(item => `<li>${item}</li>`).join('');
+            list.innerHTML = data.key_takeaways.map(item => `<div class="takeaway-item">${item}</div>`).join('');
 
             renderQuizQuestions(data.quiz);
-            document.getElementById('results-area').scrollIntoView({ behavior: 'smooth' });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function renderQuizQuestions(quizList) {
@@ -282,6 +523,9 @@ def serve_ui():
             isSubmitted = false;
 
             document.getElementById('next-steps-box').style.display = 'none';
+
+            const scorePill = document.getElementById('score-display');
+            scorePill.classList.remove('completed');
 
             const submitBtn = document.getElementById('submit-quiz-btn');
             submitBtn.disabled = false;
@@ -300,7 +544,7 @@ def serve_ui():
 
                 const qTitle = document.createElement('div');
                 qTitle.className = 'quiz-q';
-                qTitle.textContent = `${qIdx + 1}. ${q.question}`;
+                qTitle.innerHTML = `<span class="q-num">${qIdx + 1}</span><span>${q.question}</span>`;
                 card.appendChild(qTitle);
 
                 const optsDiv = document.createElement('div');
@@ -378,12 +622,13 @@ def serve_ui():
                 feedback.style.display = 'block';
             });
 
-            document.getElementById('score-display').textContent = `Τελικό Σκορ: ${score} / ${total}`;
+            const scorePill = document.getElementById('score-display');
+            scorePill.textContent = `Τελικό Σκορ: ${score} / ${total}`;
+            scorePill.classList.add('completed');
 
             const submitBtn = document.getElementById('submit-quiz-btn');
             submitBtn.style.display = 'none';
 
-            // Εμφάνιση της κάρτας με τις επιλογές συνέχειας
             const nextBox = document.getElementById('next-steps-box');
             const nextMsg = document.getElementById('next-steps-msg');
             const retryBtn = document.getElementById('retry-btn');
@@ -437,8 +682,13 @@ def serve_ui():
             document.getElementById('file-input').value = '';
             updateFileName();
             activeNotesText = '';
+
+            // Επαναφέρουμε το input panel και κρύβουμε τα αποτελέσματα
             document.getElementById('results-area').style.display = 'none';
-            document.getElementById('input-panel').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('header-new-notes-btn').style.display = 'none';
+            document.getElementById('input-panel').style.display = 'block';
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
             document.getElementById('notes-input').focus();
         }
     </script>
