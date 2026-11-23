@@ -13,11 +13,26 @@ client = genai.Client(
     http_options=types.HttpOptions(timeout=45000),
 )
 
-ACTIVE_MODELS = [
-    "gemini-3.8-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-3.1-pro-preview",
-]
+
+def get_available_flash_models() -> list[str]:
+    """Εντοπίζει δυναμικά τα ενεργά γρήγορα μοντέλα (flash) του API key."""
+    discovered = []
+    try:
+        for m in client.models.list():
+            name = (m.name or "").replace("models/", "")
+            actions = getattr(m, "supported_actions", None) or []
+            if "generateContent" in actions and "flash" in name.lower():
+                if not any(x in name.lower() for x in ["image", "audio", "tts", "live", "embedding"]):
+                    discovered.append(name)
+    except Exception as e:
+        print(f"⚠️ Σφάλμα κατά το list models: {e}", flush=True)
+
+    discovered.sort(reverse=True)
+    return discovered or ["gemini-3.8-flash", "gemini-3.1-flash-lite"]
+
+
+ACTIVE_MODELS = get_available_flash_models()
+print(f"✅ Ενεργά μοντέλα για το API key: {ACTIVE_MODELS}", flush=True)
 
 
 class QuizQuestion(BaseModel):
@@ -78,58 +93,3 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
                 )
                 return StudyGuideResponse.model_validate_json(response.text)
             except Exception as e:
-                last_error = e
-                err_str = str(e)
-                print(f"⚠️ {model_name}: {type(e).__name__} - {err_str}", flush=True)
-                if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
-                    time.sleep(attempt * 1.5)
-                continue
-
-    raise RuntimeError(f"Το μοντέλο είναι προσωρινά απασχολημένο. Δοκίμασε ξανά. ({last_error})")
-
-
-class NewQuizResponse(BaseModel):
-    quiz: list[QuizQuestion] = Field(description="5 νέες, διαφορετικές ερωτήσεις πολλαπλής επιλογής πάνω στις ίδιες σημειώσεις")
-
-
-def generate_new_quiz(notes_text: str, previous_questions: list[str] = None) -> NewQuizResponse:
-    """Παράγει ένα νέο σετ 5 ερωτήσεων αποφεύγοντας τις προηγούμενες."""
-    trimmed_notes = notes_text[:18000]
-    avoid_block = ""
-    if previous_questions:
-        joined = "\n".join(f"- {q}" for q in previous_questions)
-        avoid_block = f"\nΑΠΕΦΥΓΕ να επαναλάβεις τις παρακάτω ερωτήσεις που έγιναν ήδη:\n{joined}\n"
-
-    system_instruction = """
-    Είσαι ένας AI Study Assistant. Δημιούργησε 5 ΝΕΕΣ ερωτήσεις πολλαπλής επιλογής (με 4 επιλογές η καθεμία)
-    που ελέγχουν διαφορετικές πτυχές ή λεπτομέρειες των σημειώσεων του χρήστη.
-    Απάντησε στη γλώσσα των σημειώσεων.
-    """
-
-    prompt = f"""
-    ΣΗΜΕΙΩΣΕΙΣ ΧΡΗΣΤΗ:
-    {trimmed_notes}
-    {avoid_block}
-    """
-
-    last_error = None
-    for attempt in range(1, 3):
-        for model_name in ACTIVE_MODELS:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        response_mime_type="application/json",
-                        response_schema=NewQuizResponse,
-                        temperature=0.4,
-                    ),
-                )
-                return NewQuizResponse.model_validate_json(response.text)
-            except Exception as e:
-                last_error = e
-                time.sleep(attempt * 1.5)
-                continue
-
-    raise RuntimeError(f"Αποτυχία δημιουργίας νέου quiz: {last_error}")
