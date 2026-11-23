@@ -88,6 +88,13 @@ def serve_ui():
         }
         button.primary:hover { background: var(--accent-hover); color: white; }
         button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        button.submit-quiz-btn {
+            background: var(--success); color: #052e16; font-weight: 700; border: none;
+            padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 0.98rem;
+            margin-top: 18px; width: 100%; transition: 0.2s;
+        }
+        button.submit-quiz-btn:hover { background: #16a34a; color: white; }
+        button.submit-quiz-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .demo-link { font-size: 0.82rem; color: var(--accent); cursor: pointer; text-decoration: underline; background: none; border: none; }
         .explanation-text { line-height: 1.75; font-size: 1.02rem; white-space: pre-wrap; color: #e2e8f0; }
         .takeaways { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
@@ -102,9 +109,15 @@ def serve_ui():
             background: var(--card); color: var(--text); cursor: pointer; font-size: 0.94rem; transition: 0.15s;
         }
         .option-btn:hover:not(:disabled) { border-color: var(--accent); background: rgba(56, 189, 248, 0.08); }
-        .option-btn.correct { background: rgba(34, 197, 94, 0.2); border-color: var(--success); color: #bbf7d0; font-weight: 600; }
-        .option-btn.wrong { background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: #fecaca; }
-        .quiz-feedback { margin-top: 10px; font-size: 0.9rem; color: var(--muted); padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.03); display: none; }
+        .option-btn.selected {
+            border-color: var(--accent);
+            background: rgba(56, 189, 248, 0.2);
+            color: #e0f2fe;
+            font-weight: 600;
+        }
+        .option-btn.correct { background: rgba(34, 197, 94, 0.22); border-color: var(--success); color: #bbf7d0; font-weight: 600; }
+        .option-btn.wrong { background: rgba(239, 68, 68, 0.22); border-color: var(--danger); color: #fecaca; }
+        .quiz-feedback { margin-top: 10px; font-size: 0.9rem; color: var(--muted); padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,0.04); display: none; }
         .score-pill { background: rgba(34, 197, 94, 0.15); color: var(--success); padding: 4px 12px; border-radius: 999px; font-size: 0.85rem; }
     </style>
 </head>
@@ -143,17 +156,18 @@ def serve_ui():
             <div class="panel">
                 <div class="panel-title">
                     <span>🎯 Quiz Αυτοαξιολόγησης</span>
-                    <span class="score-pill" id="score-display">Σκορ: 0 / 0</span>
+                    <span class="score-pill" id="score-display">Επιλεγμένα: 0 / 0</span>
                 </div>
                 <div id="quiz-container"></div>
+                <button class="submit-quiz-btn" id="submit-quiz-btn" onclick="submitQuiz()">✅ Υποβολή Quiz & Έλεγχος Αποτελεσμάτων</button>
             </div>
         </div>
     </div>
 
     <script>
-        let score = 0;
-        let answeredCount = 0;
-        let totalQuestions = 0;
+        let currentQuizData = [];
+        let userSelections = {};
+        let isSubmitted = false;
 
         function updateFileName() {
             const input = document.getElementById('file-input');
@@ -163,111 +177,4 @@ def serve_ui():
 
         function fillDemoNotes() {
             document.getElementById('notes-input').value =
-`Το Gradient Descent (Κατάβαση Κλίσης) είναι ο βασικός αλγόριθμος βελτιστοποίησης στη Μηχανική Μάθηση. Σκοπός του είναι να ελαχιστοποιήσει τη συνάρτηση κόστους (Loss Function), η οποία μετρά πόσο απέχουν οι προβλέψεις του μοντέλου από τις πραγματικές τιμές. Σε κάθε βήμα, υπολογίζει την παράγωγο (gradient) της συνάρτησης κόστους ως προς τα βάρη (weights) και ενημερώνει τα βάρη προς την αντίθετη κατεύθυνση της κλίσης. Το μέγεθος του βήματος καθορίζεται από το Learning Rate (ρυθμός μάθησης): αν είναι πολύ μεγάλο, ο αλγόριθμος μπορεί να αστοχήσει και να αποκλίνει· αν είναι πολύ μικρό, η εκπαίδευση γίνεται εξαιρετικά αργή.`;
-        }
-
-        async function generateStudy() {
-            const notes = document.getElementById('notes-input').value.trim();
-            const fileInput = document.getElementById('file-input');
-            const btn = document.getElementById('generate-btn');
-
-            if (!notes && !fileInput.files.length) {
-                return alert('Γράψε/επικόλλησε σημειώσεις ή επίλεξε ένα αρχείο πρώτα!');
-            }
-
-            btn.disabled = true;
-            btn.textContent = '⏳ Ανάλυση & σύνταξη Quiz...';
-
-            const formData = new FormData();
-            formData.append('notes_text', notes);
-            if (fileInput.files.length) {
-                formData.append('file', fileInput.files[0]);
-            }
-
-            try {
-                const res = await fetch('/api/study', { method: 'POST', body: formData });
-                const rawText = await res.text();
-                let data;
-                try { data = JSON.parse(rawText); }
-                catch { throw new Error(`Σφάλμα διακομιστή (HTTP ${res.status}).`); }
-
-                if (!res.ok) throw new Error(data.detail || 'Αποτυχία επεξεργασίας');
-                renderResults(data);
-            } catch (err) {
-                alert('❌ ' + err.message);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '✨ Εξήγηση & Δημιουργία Quiz';
-            }
-        }
-
-        function renderResults(data) {
-            document.getElementById('results-area').style.display = 'flex';
-            document.getElementById('result-title').textContent = '📖 ' + data.title;
-            document.getElementById('explanation-box').textContent = data.simple_explanation;
-
-            const list = document.getElementById('takeaways-list');
-            list.innerHTML = data.key_takeaways.map(item => `<li>${item}</li>`).join('');
-
-            score = 0;
-            answeredCount = 0;
-            totalQuestions = data.quiz.length;
-            updateScore();
-
-            const quizContainer = document.getElementById('quiz-container');
-            quizContainer.innerHTML = '';
-
-            data.quiz.forEach((q, qIdx) => {
-                const card = document.createElement('div');
-                card.className = 'quiz-card';
-
-                const qTitle = document.createElement('div');
-                qTitle.className = 'quiz-q';
-                qTitle.textContent = `${qIdx + 1}. ${q.question}`;
-                card.appendChild(qTitle);
-
-                const optsDiv = document.createElement('div');
-                optsDiv.className = 'options';
-
-                const feedback = document.createElement('div');
-                feedback.className = 'quiz-feedback';
-
-                q.options.forEach((optText, optIdx) => {
-                    const optBtn = document.createElement('button');
-                    optBtn.className = 'option-btn';
-                    optBtn.textContent = optText;
-                    optBtn.onclick = () => {
-                        const allBtns = optsDiv.querySelectorAll('button');
-                        allBtns.forEach(b => b.disabled = true);
-
-                        if (optIdx === q.correct_index) {
-                            optBtn.classList.add('correct');
-                            score++;
-                            feedback.innerHTML = `✅ <strong>Σωστό!</strong> ${q.explanation}`;
-                        } else {
-                            optBtn.classList.add('wrong');
-                            allBtns[q.correct_index].classList.add('correct');
-                            feedback.innerHTML = `❌ <strong>Λάθος.</strong> ${q.explanation}`;
-                        }
-                        answeredCount++;
-                        updateScore();
-                        feedback.style.display = 'block';
-                    };
-                    optsDiv.appendChild(optBtn);
-                });
-
-                card.appendChild(optsDiv);
-                card.appendChild(feedback);
-                quizContainer.appendChild(card);
-            });
-
-            document.getElementById('results-area').scrollIntoView({ behavior: 'smooth' });
-        }
-
-        function updateScore() {
-            document.getElementById('score-display').textContent = `Σκορ: ${score} / ${totalQuestions}`;
-        }
-    </script>
-</body>
-</html>
-    """
+`Το Gradient Descent (Κατάβαση Κλίσης) είναι ο βασικός αλγόριθμος βελτιστοποίησης στη Μηχανική Μάθηση. Σκοπός του είναι να ελαχιστοποιήσει τη συνάρτηση κόστους (Loss Function), η
