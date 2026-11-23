@@ -10,16 +10,15 @@ load_dotenv()
 
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY"),
-    http_options=types.HttpOptions(timeout=25000),
+    http_options=types.HttpOptions(timeout=12000),
 )
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(name="msc_notes")
 
-# Μόνο τα έγκυρα μοντέλα του λογαριασμού σου
+# Το σταθερό gemini-2.5-flash μπαίνει πρώτο για άμεση απόκριση χωρίς καθυστερήσεις
 ACTIVE_MODELS = [
-    "gemini-3.1-flash-lite",
-    "gemini-3.8-flash",
     "gemini-2.5-flash",
+    "gemini-3.1-flash-lite",
 ]
 
 
@@ -36,11 +35,11 @@ class RAGResponse(BaseModel):
 
 
 def generate_with_retry(prompt: str, system_instruction: str, response_schema):
-    """Καλεί τα ενεργά μοντέλα με exponential backoff για στιγμιαία 503 ServerErrors."""
+    """Καλεί τα ενεργά μοντέλα με σύντομο backoff ώστε να μην ξεπερνά το όριο των 30s του Render."""
     last_error = None
-    for attempt in range(1, 4):  # Έως 3 γύροι προσπαθειών
+    for attempt in range(1, 3):  # Έως 2 γύροι προσπαθειών
         for model_name in ACTIVE_MODELS:
-            print(f"🤖 Προσπάθεια {attempt}/3 με {model_name}...", flush=True)
+            print(f"🤖 Προσπάθεια {attempt}/2 με {model_name}...", flush=True)
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -56,9 +55,9 @@ def generate_with_retry(prompt: str, system_instruction: str, response_schema):
             except Exception as e:
                 last_error = e
                 err_str = str(e)
-                print(f"⚠️ {model_name}: {type(e).__name__}", flush=True)
+                print(f"⚠️ {model_name}: {type(e).__name__} - {err_str}", flush=True)
                 if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
-                    wait_sec = attempt * 3
+                    wait_sec = attempt * 1.5
                     print(f"⏳ Αναμονή {wait_sec}s λόγω φόρτου server...", flush=True)
                     time.sleep(wait_sec)
                 continue
@@ -119,10 +118,10 @@ def ask_notes(query: str, top_k: int = 5) -> RAGResponse:
     system_instruction = """
     Είσαι ένας αυστηρός και ακριβής ακαδημαϊκός βοηθός για μεταπτυχιακό στην Τεχνητή Νοημοσύνη.
     Κανόνες:
-    1. Απάντησε στην ερώτηση του χρήστη ΑΠΟΚΛΕΙΣΤΙΚΑ με βάση τις Πηγές που σου δίνονται παρακάτω.
-    2. ΜΗΝ χρησιμοποιείς εξωτερικές γνώσεις και ΜΗΝ υποθέτεις πράγματα που δεν γράφονται ρητά στις πηγές.
-    3. Αν οι πηγές δεν περιέχουν την απάντηση, θέσε found_in_notes=False και εξήγησε ευγενικά ότι η πληροφορία δεν βρέθηκε στις σημειώσεις.
-    4. Συμπλήρωσε με ακρίβεια τα citations (όνομα αρχείου και αριθμό σελίδας) για κάθε πηγή που στήριξε την απάντησή σου.
+1. Απάντησε στην ερώτηση του χρήστη ΑΠΟΚΛΕΙΣΤΙΚΑ με βάση τις Πηγές που σου δίνονται παρακάτω.
+2. ΜΗΝ χρησιμοποιείς εξωτερικές γνώσεις και ΜΗΝ υποθέτεις πράγματα που δεν γράφονται ρητά στις πηγές.
+3. Αν οι πηγές δεν περιέχουν την απάντηση, θέσε found_in_notes=False και εξήγησε ευγενικά ότι η πληροφορία δεν βρέθηκε στις σημειώσεις.
+4. Συμπλήρωσε με ακρίβεια τα citations (όνομα αρχείου και αριθμό σελίδας) για κάθε πηγή που στήριξε την απάντησή σου.
     """
 
     prompt = f"""
