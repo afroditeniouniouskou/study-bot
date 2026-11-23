@@ -10,13 +10,12 @@ load_dotenv()
 
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY"),
-    http_options=types.HttpOptions(timeout=20000),
+    http_options=types.HttpOptions(timeout=45000),
 )
 
 ACTIVE_MODELS = [
+    "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-2.5-pro",
 ]
 
 
@@ -46,15 +45,14 @@ def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
 
 def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
     """Αναλύει τις σημειώσεις με απλά λόγια και παράγει διαδραστικό Quiz σε μία κλήση."""
-    # Κόβουμε με ασφάλεια αν κάποιος ανεβάσει τεράστιο βιβλίο 300 σελίδων ώστε να απαντάει σε 2-3s
-    trimmed_notes = notes_text[:35000]
+    trimmed_notes = notes_text[:18000]
 
     system_instruction = """
     Είσαι ένας εξαιρετικός, μεταδοτικός καθηγητής και AI Study Assistant.
     Στόχος σου είναι να πάρεις τις σημειώσεις του χρήστη και:
-    1. Να εξηγήσεις το νόημά τους με απλά, κατανοητά λόγια (χωρίς περιττή ακαδημαϊκή δυσκολία), αναλύοντας το 'γιατί' και το 'πώς' λειτουργούν οι έννοιες.
-    2. Να ξεχωρίσεις τα πιο σημαντικά σημεία-κλειδιά (key takeaways).
-    3. Να δημιουργήσεις 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (quiz) που ελέγχουν την πραγματική κατανόηση (όχι απλή αποστήθιση) και έχουν 4 επιλογές η καθεμία.
+1. Να εξηγήσεις το νόημά τους με απλά, κατανοητά λόγια (χωρίς περιττή ακαδημαϊκή δυσκολία), αναλύοντας το 'γιατί' και το 'πώς' λειτουργούν οι έννοιες.
+2. Να ξεχωρίσεις τα πιο σημαντικά σημεία-κλειδιά (key takeaways).
+3. Να δημιουργήσεις 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (quiz) που ελέγχουν την πραγματική κατανόηση (όχι απλή αποστήθιση) και έχουν 4 επιλογές η καθεμία.
     Απάντησε στη γλώσσα των σημειώσεων (κατά προτίμηση στα Ελληνικά).
     """
 
@@ -88,13 +86,14 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
 
     raise RuntimeError(f"Το μοντέλο είναι προσωρινά απασχολημένο. Δοκίμασε ξανά. ({last_error})")
 
+
 class NewQuizResponse(BaseModel):
     quiz: list[QuizQuestion] = Field(description="5 νέες, διαφορετικές ερωτήσεις πολλαπλής επιλογής πάνω στις ίδιες σημειώσεις")
 
 
 def generate_new_quiz(notes_text: str, previous_questions: list[str] = None) -> NewQuizResponse:
     """Παράγει ένα νέο σετ 5 ερωτήσεων αποφεύγοντας τις προηγούμενες."""
-    trimmed_notes = notes_text[:35000]
+    trimmed_notes = notes_text[:18000]
     avoid_block = ""
     if previous_questions:
         joined = "\n".join(f"- {q}" for q in previous_questions)
