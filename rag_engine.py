@@ -66,9 +66,9 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
     system_instruction = """
     Είσαι ένας εξαιρετικός, μεταδοτικός καθηγητής και AI Study Assistant.
     Στόχος σου είναι να πάρεις τις σημειώσεις του χρήστη και:
-1. Να εξηγήσεις το νόημά τους με απλά, κατανοητά λόγια (χωρίς περιττή ακαδημαϊκή δυσκολία), αναλύοντας το 'γιατί' και το 'πώς' λειτουργούν οι έννοιες.
-2. Να ξεχωρίσεις τα πιο σημαντικά σημεία-κλειδιά (key takeaways).
-3. Να δημιουργήσεις 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (quiz) που ελέγχουν την πραγματική κατανόηση (όχι απλή αποστήθιση) και έχουν 4 επιλογές η καθεμία.
+    1. Να εξηγήσεις το νόημά τους με απλά, κατανοητά λόγια (χωρίς περιττή ακαδημαϊκή δυσκολία), αναλύοντας το 'γιατί' και το 'πώς' λειτουργούν οι έννοιες.
+    2. Να ξεχωρίσεις τα πιο σημαντικά σημεία-κλειδιά (key takeaways).
+    3. Να δημιουργήσεις 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (quiz) που ελέγχουν την πραγματική κατανόηση (όχι απλή αποστήθιση) και έχουν 4 επιλογές η καθεμία.
     Απάντησε στη γλώσσα των σημειώσεων (κατά προτίμηση στα Ελληνικά).
     """
 
@@ -93,3 +93,58 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
                 )
                 return StudyGuideResponse.model_validate_json(response.text)
             except Exception as e:
+                last_error = e
+                err_str = str(e)
+                print(f"⚠️ {model_name}: {type(e).__name__} - {err_str}", flush=True)
+                if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                    time.sleep(attempt * 1.5)
+                continue
+
+    raise RuntimeError(f"Το μοντέλο είναι προσωρινά απασχολημένο. Δοκίμασε ξανά. ({last_error})")
+
+
+class NewQuizResponse(BaseModel):
+    quiz: list[QuizQuestion] = Field(description="5 νέες, διαφορετικές ερωτήσεις πολλαπλής επιλογής πάνω στις ίδιες σημειώσεις")
+
+
+def generate_new_quiz(notes_text: str, previous_questions: list[str] = None) -> NewQuizResponse:
+    """Παράγει ένα νέο σετ 5 ερωτήσεων αποφεύγοντας τις προηγούμενες."""
+    trimmed_notes = notes_text[:18000]
+    avoid_block = ""
+    if previous_questions:
+        joined = "\n".join(f"- {q}" for q in previous_questions)
+        avoid_block = f"\nΑΠΕΦΥΓΕ να επαναλάβεις τις παρακάτω ερωτήσεις που έγιναν ήδη:\n{joined}\n"
+
+    system_instruction = """
+    Είσαι ένας AI Study Assistant. Δημιούργησε 5 ΝΕΕΣ ερωτήσεις πολλαπλής επιλογής (με 4 επιλογές η καθεμία)
+    που ελέγχουν διαφορετικές πτυχές ή λεπτομέρειες των σημειώσεων του χρήστη.
+    Απάντησε στη γλώσσα των σημειώσεων.
+    """
+
+    prompt = f"""
+    ΣΗΜΕΙΩΣΕΙΣ ΧΡΗΣΤΗ:
+    {trimmed_notes}
+    {avoid_block}
+    """
+
+    last_error = None
+    for attempt in range(1, 3):
+        for model_name in ACTIVE_MODELS:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        response_mime_type="application/json",
+                        response_schema=NewQuizResponse,
+                        temperature=0.4,
+                    ),
+                )
+                return NewQuizResponse.model_validate_json(response.text)
+            except Exception as e:
+                last_error = e
+                time.sleep(attempt * 1.5)
+                continue
+
+    raise RuntimeError(f"Αποτυχία δημιουργίας νέου quiz: {last_error}")
