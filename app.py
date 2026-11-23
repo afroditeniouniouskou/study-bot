@@ -39,24 +39,9 @@ async def api_study(
         )
 
     try:
-        result = generate_study_guide_and_quiz(combined_text)
-        return result
+        return generate_study_guide_and_quiz(combined_text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/extract-text")
-async def api_extract_text(
-    notes_text: str = Form(""),
-    file: Optional[UploadFile] = File(None),
-):
-    combined_text = notes_text.strip()
-    if file and file.filename:
-        file_bytes = await file.read()
-        if file_bytes:
-            extracted = extract_text_from_bytes(file_bytes, file.filename)
-            combined_text = f"{combined_text}\n\n{extracted}".strip() if combined_text else extracted
-    return {"text": combined_text}
 
 
 @app.post("/api/new-quiz", response_model=NewQuizResponse)
@@ -262,15 +247,6 @@ def serve_ui():
             }
 
             try {
-                // Κρατάμε το κείμενο των σημειώσεων για μελλοντικά νέα quizzes
-                const textRes = await fetch('/api/extract-text', { method: 'POST', body: formData });
-                if (textRes.ok) {
-                    const textData = await textRes.json();
-                    activeNotesText = textData.text;
-                } else {
-                    activeNotesText = notes;
-                }
-
                 const res = await fetch('/api/study', { method: 'POST', body: formData });
                 const rawText = await res.text();
                 let data;
@@ -278,6 +254,7 @@ def serve_ui():
                 catch { throw new Error(`Σφάλμα διακομιστή (HTTP ${res.status}).`); }
 
                 if (!res.ok) throw new Error(data.detail || 'Αποτυχία επεξήγησης');
+                activeNotesText = data.extracted_text || notes;
                 renderResults(data);
             } catch (err) {
                 alert('❌ ' + err.message);
