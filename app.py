@@ -1,9 +1,12 @@
 import io
+import os
 import re
+import struct
 from typing import Optional
-import edge_tts
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response
+from google import genai
+from google.genai import types
 from pydantic import BaseModel
 
 from rag_engine import (
@@ -17,6 +20,11 @@ from rag_engine import (
 )
 
 app = FastAPI(title="Study Studio — Explainer, Voice Tutor & Quiz")
+
+tts_client = genai.Client(
+    api_key=os.getenv("GEMINI_API_KEY"),
+    http_options=types.HttpOptions(timeout=30000, api_version="v1beta"),
+)
 
 
 class NewQuizRequest(BaseModel):
@@ -33,23 +41,71 @@ class TTSRequest(BaseModel):
     text: str
 
 
+def _pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000, channels: int = 1, bits_per_sample: int = 16) -> bytes:
+    """Μετατρέπει raw PCM ήχο από το Gemini TTS σε standard WAV για άμεση αναπαραγωγή στον browser."""
+    byte_rate = sample_rate * channels * bits_per_sample // 8
+    block_align = channels * bits_per_sample // 8
+    data_size = len(pcm_data)
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",
+        36 + data_size,
+        b"WAVE",
+        b"fmt ",
+        16,
+        1,
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits_per_sample,
+        b"data",
+        data_size,
+    )
+    return header + pcm_data
+
+
 @app.post("/api/tts")
-async def api_tts(payload: TTSRequest):
+def api_tts(payload: TTSRequest):
     clean_text = re.sub(r"[*#_`~>\[\]]+", " ", payload.text).strip()
-    clean_text = re.sub(r"\s+", " ", clean_text)[:3500]
+    clean_text = re.sub(r"\s+", " ", clean_text)[:1200]
     if not clean_text:
         raise HTTPException(status_code=400, detail="Κενό κείμενο για εκφώνηση.")
 
-    try:
-        communicate = edge_tts.Communicate(clean_text, voice="el-GR-AthinaNeural", rate="+2%")
-        audio_buffer = io.BytesIO()
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_buffer.write(chunk["data"])
-        audio_buffer.seek(0)
-        return StreamingResponse(audio_buffer, media_type="audio/mpeg")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Σφάλμα δημιουργίας ήχου: {e}")
+    tts_models = ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"]
+    last_err = None
+
+    for model_name in tts_models:
+        try:
+            response = tts_client.models.generate_content(
+                model=model_name,
+                contents=f"Διάβασε το παρακάτω ελληνικό κείμενο με φυσικό, ζεστό και μεταδοτικό τόνο καθηγητή:\n\n{clean_text}",
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name="Aoede"
+                            )
+                        )
+                    ),
+                ),
+            )
+            for cand in response.candidates or []:
+                for part in cand.content.parts or []:
+                    if part.inline_data and part.inline_data.data:
+                        mime = part.inline_data.mime_type or ""
+                        raw_bytes = part.inline_data.data
+                        if "wav" in mime or "mp3" in mime or "ogg" in mime:
+                            return Response(content=raw_bytes, media_type=mime)
+                        wav_bytes = _pcm_to_wav(raw_bytes, sample_rate=24000)
+                        return Response(content=wav_bytes, media_type="audio/wav")
+        except Exception as e:
+            last_err = e
+            print(f"⚠️ TTS {model_name} error: {e}", flush=True)
+            continue
+
+    raise HTTPException(status_code=500, detail=f"Αποτυχία δημιουργίας φωνής: {last_err}")
 
 
 @app.post("/api/study", response_model=StudyGuideResponse)
@@ -969,9 +1025,11 @@ def serve_ui():
                 <div class="voice-transcript" id="voice-transcript"></div>
             </div>
 
+            <audio id="tutor-audio" preload="auto"></audio>
+
             <div class="voice-controls">
                 <button class="btn-secondary" id="voice-prev-btn" onclick="voiceChangeSection(-1)">← Προηγούμενη</button>
-                <button class="btn-primary" id="voice-play-pause-btn" onclick="toggleVoicePlayPause()">⏸ Παύση</button>
+                <button class="btn-primary" id="voice-play-pause-btn" onclick="toggleVoicePlayPause()">▶ Ακρόαση</button>
                 <button class="btn-secondary" id="voice-next-btn" onclick="voiceChangeSection(1)">Επόμενη Ενότητα →</button>
                 <button class="btn-mic" id="mic-btn" onclick="startVoiceQuestion()">🎤 Κάνε Φωνητική Ερώτηση</button>
             </div>
@@ -1050,9 +1108,8 @@ def serve_ui():
         let currentSummaryPage = 0;
 
         let voiceSectionIndex = 0;
-        let currentAudio = null;
-        let currentAudioUrl = null;
-        let ttsAbortController = null;
+        let speechSessionId = 0;
+        let isAudioPlaying = false;
         let recognition = null;
 
         let currentQuizData = [];
@@ -1060,6 +1117,14 @@ def serve_ui():
         let isSubmitted = false;
         let activeNotesText = "";
         const LETTERS = ["A", "B", "C", "D"];
+
+        // Ξεκλειδώνει το audio element πάνω στο user click ώστε ο browser να επιτρέπει αυτόματη αναπαραγωγή μετά το fetch
+        function unlockAudioPlayer() {
+            const player = document.getElementById('tutor-audio');
+            if (!player) return;
+            player.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+            player.play().then(() => player.pause()).catch(() => {});
+        }
 
         function updateFileName() {
             const input = document.getElementById('file-input');
@@ -1080,6 +1145,10 @@ def serve_ui():
 
             if (!notes && !fileInput.files.length) {
                 return alert('Πρόσθεσε σημειώσεις ή επίλεξε ένα αρχείο πρώτα.');
+            }
+
+            if (mode === 'voice') {
+                unlockAudioPlayer();
             }
 
             btnRead.disabled = true;
@@ -1140,6 +1209,7 @@ def serve_ui():
         }
 
         function activateVoiceMode() {
+            unlockAudioPlayer();
             currentMode = 'voice';
             document.getElementById('results-area').style.display = 'none';
             document.getElementById('voice-area').style.display = 'flex';
@@ -1159,7 +1229,7 @@ def serve_ui():
             }
         }
 
-        /* --- SERVER-SIDE NATURAL GREEK TTS --- */
+        /* --- GEMINI NATIVE GREEK TTS WITH SENTENCE PREFETCH --- */
         function setVoiceStatus(state, label) {
             const badge = document.getElementById('voice-status');
             badge.className = 'voice-status-badge ' + (state || '');
@@ -1167,75 +1237,125 @@ def serve_ui():
         }
 
         function stopSpeech() {
-            if (ttsAbortController) {
-                ttsAbortController.abort();
-                ttsAbortController = null;
+            speechSessionId++;
+            isAudioPlaying = false;
+            const player = document.getElementById('tutor-audio');
+            if (player) {
+                player.pause();
+                player.removeAttribute('src');
             }
-            if (currentAudio) {
-                currentAudio.pause();
-                currentAudio.currentTime = 0;
-                currentAudio = null;
-            }
-            if (currentAudioUrl) {
-                URL.revokeObjectURL(currentAudioUrl);
-                currentAudioUrl = null;
-            }
-            document.getElementById('voice-play-pause-btn').textContent = '▶ Επανάληψη';
+            const btn = document.getElementById('voice-play-pause-btn');
+            btn.disabled = false;
+            btn.textContent = '▶ Ακρόαση';
             setVoiceStatus('', 'Σε αναμονή');
+        }
+
+        function splitIntoChunks(text) {
+            const rawSentences = text.split(/(?<=[.;!?;])\s+/);
+            const chunks = [];
+            let current = "";
+            for (const s of rawSentences) {
+                if (!s.trim()) continue;
+                if ((current + " " + s).length < 260) {
+                    current = (current + " " + s).trim();
+                } else {
+                    if (current) chunks.push(current);
+                    current = s.trim();
+                }
+            }
+            if (current) chunks.push(current);
+            return chunks;
+        }
+
+        async function fetchAudioBlobUrl(chunkText) {
+            const res = await fetch('/api/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: chunkText }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || 'TTS error');
+            }
+            const blob = await res.blob();
+            return URL.createObjectURL(blob);
         }
 
         async function speakGreekText(textToSpeak) {
             stopSpeech();
+            const mySession = speechSessionId;
             const btn = document.getElementById('voice-play-pause-btn');
+            const player = document.getElementById('tutor-audio');
+
             btn.disabled = true;
-            btn.textContent = 'Φόρτωση φωνής...';
-            setVoiceStatus('', 'Προετοιμασία φωνής...');
+            btn.textContent = 'Ετοιμάζω φωνή...';
+            setVoiceStatus('', 'Δημιουργία φωνής...');
 
-            ttsAbortController = new AbortController();
+            const chunks = splitIntoChunks(textToSpeak);
+            if (!chunks.length) return;
 
-            try {
-                const res = await fetch('/api/tts', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: textToSpeak }),
-                    signal: ttsAbortController.signal,
-                });
-
-                if (!res.ok) {
-                    const errData = await res.json().catch(() => ({}));
-                    throw new Error(errData.detail || 'Αποτυχία δημιουργίας ήχου');
+            const promiseCache = new Map();
+            const getChunkUrl = (index) => {
+                if (!promiseCache.has(index)) {
+                    promiseCache.set(index, fetchAudioBlobUrl(chunks[index]));
                 }
+                return promiseCache.get(index);
+            };
 
-                const blob = await res.blob();
-                currentAudioUrl = URL.createObjectURL(blob);
-                currentAudio = new Audio(currentAudioUrl);
+            getChunkUrl(0);
+            if (chunks.length > 1) getChunkUrl(1);
 
-                currentAudio.onplay = () => {
-                    btn.disabled = false;
-                    btn.textContent = '⏸ Παύση';
-                    setVoiceStatus('speaking', 'Εξηγεί τώρα...');
-                };
+            for (let i = 0; i < chunks.length; i++) {
+                if (mySession !== speechSessionId) return;
+                if (i + 2 < chunks.length) getChunkUrl(i + 2);
 
-                currentAudio.onended = () => {
-                    btn.disabled = false;
-                    btn.textContent = '▶ Επανάληψη';
-                    setVoiceStatus('', 'Ολοκληρώθηκε');
-                };
+                try {
+                    const url = await getChunkUrl(i);
+                    if (mySession !== speechSessionId) {
+                        URL.revokeObjectURL(url);
+                        return;
+                    }
 
-                currentAudio.onerror = () => {
-                    btn.disabled = false;
-                    btn.textContent = '▶ Επανάληψη';
-                    setVoiceStatus('', 'Σφάλμα αναπαραγωγής');
-                };
-
-                await currentAudio.play();
-            } catch (err) {
-                if (err.name !== 'AbortError') {
+                    await new Promise((resolve) => {
+                        player.src = url;
+                        player.onplay = () => {
+                            isAudioPlaying = true;
+                            btn.disabled = false;
+                            btn.textContent = '⏸ Παύση';
+                            setVoiceStatus('speaking', 'Εξηγεί τώρα...');
+                        };
+                        player.onended = () => {
+                            isAudioPlaying = false;
+                            URL.revokeObjectURL(url);
+                            resolve();
+                        };
+                        player.onerror = () => {
+                            isAudioPlaying = false;
+                            URL.revokeObjectURL(url);
+                            resolve();
+                        };
+                        player.play().catch((playErr) => {
+                            console.warn('Autoplay blocked, user can click Play:', playErr);
+                            btn.disabled = false;
+                            btn.textContent = '▶ Πάτα για Ακρόαση';
+                            setVoiceStatus('', 'Έτοιμο - πάτα Ακρόαση');
+                            resolve();
+                        });
+                    });
+                } catch (err) {
                     console.error(err);
-                    setVoiceStatus('', 'Πάτα ▶ για ακρόαση');
+                    if (mySession === speechSessionId) {
+                        setVoiceStatus('', 'Σφάλμα φωνής');
+                    }
+                    break;
                 }
+            }
+
+            if (mySession === speechSessionId) {
+                isAudioPlaying = false;
                 btn.disabled = false;
-                btn.textContent = '▶ Ακρόαση';
+                btn.textContent = '▶ Επανάληψη';
+                setVoiceStatus('', 'Ολοκληρώθηκε');
             }
         }
 
@@ -1262,6 +1382,7 @@ def serve_ui():
         }
 
         function voiceChangeSection(delta) {
+            unlockAudioPlayer();
             const next = voiceSectionIndex + delta;
             if (next >= 0 && next < summarySections.length) {
                 playVoiceSection(next);
@@ -1269,14 +1390,16 @@ def serve_ui():
         }
 
         function toggleVoicePlayPause() {
+            unlockAudioPlayer();
             const btn = document.getElementById('voice-play-pause-btn');
+            const player = document.getElementById('tutor-audio');
 
-            if (currentAudio && !currentAudio.paused) {
-                currentAudio.pause();
+            if (player && !player.paused) {
+                player.pause();
                 btn.textContent = '▶ Συνέχεια';
                 setVoiceStatus('', 'Σε παύση');
-            } else if (currentAudio && currentAudio.paused && currentAudio.currentTime > 0 && !currentAudio.ended) {
-                currentAudio.play();
+            } else if (player && player.paused && player.src && player.currentTime > 0 && !player.ended) {
+                player.play();
                 btn.textContent = '⏸ Παύση';
                 setVoiceStatus('speaking', 'Εξηγεί τώρα...');
             } else {
@@ -1285,6 +1408,7 @@ def serve_ui():
         }
 
         function startVoiceQuestion() {
+            unlockAudioPlayer();
             stopSpeech();
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
@@ -1329,6 +1453,7 @@ def serve_ui():
         }
 
         async function submitVoiceQuestion() {
+            unlockAudioPlayer();
             const input = document.getElementById('voice-text-question');
             const question = input.value.trim();
             if (!question) return;
