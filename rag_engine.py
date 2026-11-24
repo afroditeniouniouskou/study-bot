@@ -11,7 +11,7 @@ load_dotenv()
 
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY"),
-    http_options=types.HttpOptions(timeout=40000, api_version="v1beta"),
+    http_options=types.HttpOptions(timeout=45000, api_version="v1beta"),
 )
 
 
@@ -65,7 +65,7 @@ ACTIVE_MODELS = _discover_available_models()
 class StudySection(BaseModel):
     heading: str = Field(description="Απλός, ξεκάθαρος τίτλος της ενότητας")
     explanation: str = Field(
-        description="Πολύ απλοϊκή, κατανοητή επεξήγηση σε φιλικό τόνο (2 παράγραφοι), σαν να τα εξηγείς προφορικά σε έναν φίλο χωρίς δύσκολη ορολογία"
+        description="Πολύ απλοϊκή, κατανοητή επεξήγηση σε φιλικό τόνο (2 σύντομες παράγραφοι), σαν να τα εξηγείς προφορικά σε έναν φίλο"
     )
     example: str = Field(description="Ένα καθημερινό, ρεαλιστικό παράδειγμα ή αναλογία")
 
@@ -74,7 +74,7 @@ class QuizQuestion(BaseModel):
     question: str = Field(description="Ερώτηση κατανόησης πάνω στις σημειώσεις")
     options: list[str] = Field(description="4 επιλογές απάντησης")
     correct_index: int = Field(description="Δείκτης 0-3 της σωστής απάντησης")
-    explanation: str = Field(description="Απλή επεξήγηση γιατί αυτή είναι η σωστή απάντηση")
+    explanation: str = Field(description="Σύντομη, απλή επεξήγηση γιατί αυτή είναι η σωστή απάντηση")
 
 
 class StudyGuideResponse(BaseModel):
@@ -116,7 +116,7 @@ def _fast_generate_config(model_name: str, system_instruction: str, schema, temp
         "response_mime_type": "application/json",
         "response_schema": schema,
         "temperature": temperature,
-        "max_output_tokens": 2000,
+        "max_output_tokens": 4500,
     }
     if "flash" in model_name.lower() and "lite" not in model_name.lower():
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
@@ -124,7 +124,7 @@ def _fast_generate_config(model_name: str, system_instruction: str, schema, temp
 
 
 def _call_with_resilient_retry(contents: str, system_instruction: str, schema, temperature: float) -> str:
-    """Γρήγορη εναλλαγή διαθέσιμων μοντέλων με σύντομο backoff σε 503/429."""
+    """Γρήγορη εναλλαγή διαθέσιμων μοντέλων με έλεγχο πλήρους JSON."""
     global ACTIVE_MODELS
     if not ACTIVE_MODELS:
         ACTIVE_MODELS = _discover_available_models()
@@ -141,12 +141,15 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
                     config=_fast_generate_config(model_name, system_instruction, schema, temperature),
                 )
                 if response and response.text:
-                    return response.text
+                    text = response.text.strip()
+                    # Επαλήθευση ότι το JSON έκλεισε κανονικά και δεν κόπηκε στη μέση
+                    schema.model_validate_json(text)
+                    return text
             except Exception as e:
                 last_error = e
                 err_str = str(e)
                 print(
-                    f"⚠️ [Γύρος {round_idx}/{max_rounds}] {model_name}: {type(e).__name__} -> {err_str}",
+                    f"⚠️ [Γύρος {round_idx}/{max_rounds}] {model_name}: {type(e).__name__} -> {err_str[:220]}",
                     flush=True,
                 )
 
@@ -175,7 +178,7 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
        - Απλή, ζωντανή επεξήγηση (2 σύντομες παράγραφοι) που απαντά στο "τι πρόβλημα λύνει;" και "πώς δουλεύει;".
        - Ένα καθημερινό παράδειγμα (π.χ. μαγειρική, οδήγηση, ψώνια).
     2. Δώσε 3-4 απλά συμπεράσματα-κλειδιά (key_takeaways).
-    3. Δημιούργησε 5 ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με απλή επεξήγηση.
+    3. Δημιούργησε 5 ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με σύντομη, απλή επεξήγηση.
     """
 
     raw_json = _call_with_resilient_retry(
@@ -221,7 +224,7 @@ def generate_new_quiz(notes_text: str, previous_questions: list[str] = None) -> 
         avoid_block = f"\nΜΗΝ επαναλάβεις:\n{joined}\n"
 
     system_instruction = """
-    Δημιούργησε 5 ΝΕΕΣ ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία, με απλή επεξήγηση) στα Ελληνικά.
+    Δημιούργησε 5 ΝΕΕΣ ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία, με σύντομη επεξήγηση) στα Ελληνικά.
     """
 
     raw_json = _call_with_resilient_retry(
