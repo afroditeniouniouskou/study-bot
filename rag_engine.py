@@ -16,12 +16,14 @@ client = genai.Client(
 
 
 def _discover_available_models() -> list[str]:
-    """Βρίσκει αυτόματα τα ενεργά Gemini μοντέλα που υποστηρίζουν generateContent."""
+    """Βρίσκει αυτόματα τα ενεργά και σταθερά Gemini μοντέλα που υποστηρίζουν generateContent."""
     fallback = [
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
         "gemini-3-flash-preview",
         "gemini-3.1-flash-lite-preview",
         "gemini-3.1-pro-preview",
-        "gemini-2.5-flash",
+        "gemini-pro-latest",
     ]
     try:
         discovered = []
@@ -29,16 +31,31 @@ def _discover_available_models() -> list[str]:
             name = (m.name or "").replace("models/", "")
             actions = m.supported_actions or []
             if "gemini" in name.lower() and "generateContent" in actions:
-                if not any(x in name.lower() for x in ["embedding", "imagen", "veo", "tts", "audio", "robotics", "computer"]):
+                if not any(
+                    x in name.lower()
+                    for x in ["embedding", "imagen", "veo", "tts", "audio", "robotics", "computer"]
+                ):
                     discovered.append(name)
 
         if discovered:
-            # Προτεραιότητα στα flash μοντέλα (πιο γρήγορα & οικονομικά), μετά τα υπόλοιπα
-            flash_models = sorted([m for m in discovered if "flash" in m.lower()], reverse=True)
-            other_models = sorted([m for m in discovered if "flash" not in m.lower()], reverse=True)
-            ordered = (flash_models + other_models)[:4]
-            print(f"✅ Διαθέσιμα Gemini μοντέλα: {ordered}", flush=True)
-            return ordered
+            stable = [m for m in discovered if not any(x in m.lower() for x in ["omni", "exp"])]
+            pool = stable if stable else discovered
+
+            priority = [
+                "gemini-flash-latest",
+                "gemini-flash-lite-latest",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+                "gemini-3.1-pro-preview",
+                "gemini-pro-latest",
+            ]
+            ordered = [m for m in priority if m in pool]
+            for m in sorted(pool, reverse=True):
+                if m not in ordered:
+                    ordered.append(m)
+
+            print(f"✅ Διαθέσιμα Gemini μοντέλα: {ordered[:6]}", flush=True)
+            return ordered[:6]
     except Exception as e:
         print(f"⚠️ Αδυναμία ανάκτησης λίστας μοντέλων ({e}), χρήση fallback.", flush=True)
 
