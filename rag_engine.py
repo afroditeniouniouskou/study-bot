@@ -17,13 +17,15 @@ client = genai.Client(
 ACTIVE_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.5-pro"
+    "gemini-2.5-pro",
 ]
 
 
 class StudySection(BaseModel):
     heading: str = Field(description="Τίτλος της υποενότητας / σελίδας")
-    explanation: str = Field(description="Αναλυτική, κατανοητή επεξήγηση του 'γιατί' και 'πώς' λειτουργεί η έννοια (2 γεμάτες παράγραφοι)")
+    explanation: str = Field(
+        description="Αναλυτική, κατανοητή επεξήγηση του 'γιατί' και 'πώς' λειτουργεί η έννοια (2 γεμάτες παράγραφοι)"
+    )
     example: str = Field(description="Ένα συγκεκριμένο, ρεαλιστικό παράδειγμα εφαρμογής ή αναλογία")
 
 
@@ -36,7 +38,9 @@ class QuizQuestion(BaseModel):
 
 class StudyGuideResponse(BaseModel):
     title: str = Field(description="Γενικός τίτλος του κεφαλαίου")
-    sections: list[StudySection] = Field(description="3 έως 4 αναλυτικές σελίδες/ενότητες θεωρίας με επεξηγήσεις και παραδείγματα")
+    sections: list[StudySection] = Field(
+        description="3 έως 4 αναλυτικές σελίδες/ενότητες θεωρίας με επεξηγήσεις και παραδείγματα"
+    )
     key_takeaways: list[str] = Field(description="3 έως 5 βασικά συμπεράσματα-κλειδιά")
     quiz: list[QuizQuestion] = Field(description="5 ερωτήσεις πολλαπλής επιλογής")
     extracted_text: str = Field(default="", description="Το κείμενο των σημειώσεων")
@@ -64,7 +68,7 @@ def _fast_generate_config(model_name: str, system_instruction: str, schema, temp
         "temperature": temperature,
         "max_output_tokens": 2400,
     }
-    if "lite" not in model_name.lower():
+    if "flash" in model_name.lower() and "lite" not in model_name.lower():
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
     return types.GenerateContentConfig(**kwargs)
 
@@ -87,7 +91,10 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
             except Exception as e:
                 last_error = e
                 err_str = str(e)
-                print(f"⚠️ [Γύρος {round_idx}/{max_rounds}] {model_name}: {type(e).__name__}", flush=True)
+                print(
+                    f"⚠️ [Γύρος {round_idx}/{max_rounds}] {model_name}: {type(e).__name__} -> {err_str}",
+                    flush=True,
+                )
 
                 if "404" in err_str or "NOT_FOUND" in err_str or "400" in err_str or "INVALID_ARGUMENT" in err_str:
                     continue
@@ -100,7 +107,7 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
             time.sleep(1.0 * round_idx)
 
     raise RuntimeError(
-        "Οι διακομιστές της Google έχουν προσωρινό φόρτο. Περίμενε 5 δευτερόλεπτα και δοκίμασε ξανά."
+        f"Σφάλμα επικοινωνίας με Gemini API: {last_error}"
     ) from last_error
 
 
@@ -110,11 +117,11 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
 
     system_instruction = """
     Είσαι ένας εξαιρετικός, μεταδοτικός καθηγητής. Απάντησε στα Ελληνικά:
-    1. Χώρισε την ύλη σε 3 έως 4 λογικές ενότητες/σελίδες (sections). Για κάθε ενότητα δώσε:
-       - Αναλυτική, σε βάθος επεξήγηση με απλά λόγια (2 γεμάτες παράγραφοι), εξηγώντας το 'γιατί' και το 'πώς'.
-       - Ένα συγκεκριμένο, κατανοητό πρακτικό παράδειγμα.
-    2. Δώσε 3-5 βασικά σημεία-κλειδιά (key_takeaways).
-    3. Δημιούργησε 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με επεξήγηση.
+1. Χώρισε την ύλη σε 3 έως 4 λογικές ενότητες/σελίδες (sections). Για κάθε ενότητα δώσε:
+  - Αναλυτική, σε βάθος επεξήγηση με απλά λόγια (2 γεμάτες παράγραφοι), εξηγώντας το 'γιατί' και το 'πώς'.
+  - Ένα συγκεκριμένο, κατανοητό πρακτικό παράδειγμα.
+2. Δώσε 3-5 βασικά σημεία-κλειδιά (key_takeaways).
+3. Δημιούργησε 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με επεξήγηση.
     """
 
     raw_json = _call_with_resilient_retry(
