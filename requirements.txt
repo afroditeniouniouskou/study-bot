@@ -1,8 +1,8 @@
-google-genai
-chromadb
-pymupdf
 fastapi
-uvicorn
-python-dotenv
-pydantic
+uvicorn[standard]
 python-multipart
+pymupdf
+google-genai
+pydantic
+python-dotenv
+edge-tts

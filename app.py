@@ -1,6 +1,9 @@
+import io
+import re
 from typing import Optional
+import edge_tts
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from rag_engine import (
@@ -24,6 +27,29 @@ class NewQuizRequest(BaseModel):
 class VoiceQuestionRequest(BaseModel):
     notes_text: str
     question: str
+
+
+class TTSRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/tts")
+async def api_tts(payload: TTSRequest):
+    clean_text = re.sub(r"[*#_`~>\[\]]+", " ", payload.text).strip()
+    clean_text = re.sub(r"\s+", " ", clean_text)[:3500]
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="Κενό κείμενο για εκφώνηση.")
+
+    try:
+        communicate = edge_tts.Communicate(clean_text, voice="el-GR-AthinaNeural", rate="+2%")
+        audio_buffer = io.BytesIO()
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_buffer.write(chunk["data"])
+        audio_buffer.seek(0)
+        return StreamingResponse(audio_buffer, media_type="audio/mpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Σφάλμα δημιουργίας ήχου: {e}")
 
 
 @app.post("/api/study", response_model=StudyGuideResponse)
@@ -928,7 +954,7 @@ def serve_ui():
         <section class="voice-panel" id="voice-area">
             <div class="voice-top">
                 <div>
-                    <span class="eyebrow">Φωνητικός Καθηγητής · Απλοϊκή Ανάλυση</span>
+                    <span class="eyebrow">Φωνητικός Καθηγητής · Ελληνική Φωνή</span>
                     <h2 class="doc-title" id="voice-title">Τίτλος Μαθήματος</h2>
                 </div>
                 <span class="voice-status-badge" id="voice-status">
@@ -1024,8 +1050,9 @@ def serve_ui():
         let currentSummaryPage = 0;
 
         let voiceSectionIndex = 0;
-        let isSpeaking = false;
-        let isPaused = false;
+        let currentAudio = null;
+        let currentAudioUrl = null;
+        let ttsAbortController = null;
         let recognition = null;
 
         let currentQuizData = [];
@@ -1132,7 +1159,7 @@ def serve_ui():
             }
         }
 
-        /* --- VOICE TUTOR ENGINE --- */
+        /* --- SERVER-SIDE NATURAL GREEK TTS --- */
         function setVoiceStatus(state, label) {
             const badge = document.getElementById('voice-status');
             badge.className = 'voice-status-badge ' + (state || '');
@@ -1140,53 +1167,76 @@ def serve_ui():
         }
 
         function stopSpeech() {
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
+            if (ttsAbortController) {
+                ttsAbortController.abort();
+                ttsAbortController = null;
             }
-            isSpeaking = false;
-            isPaused = false;
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+                currentAudio = null;
+            }
+            if (currentAudioUrl) {
+                URL.revokeObjectURL(currentAudioUrl);
+                currentAudioUrl = null;
+            }
             document.getElementById('voice-play-pause-btn').textContent = '▶ Επανάληψη';
             setVoiceStatus('', 'Σε αναμονή');
         }
 
-        function speakGreekText(textToSpeak, onEndCallback) {
-            if (!('speechSynthesis' in window)) {
-                setVoiceStatus('', 'Ο browser δεν υποστηρίζει φωνή');
-                return;
+        async function speakGreekText(textToSpeak) {
+            stopSpeech();
+            const btn = document.getElementById('voice-play-pause-btn');
+            btn.disabled = true;
+            btn.textContent = 'Φόρτωση φωνής...';
+            setVoiceStatus('', 'Προετοιμασία φωνής...');
+
+            ttsAbortController = new AbortController();
+
+            try {
+                const res = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: textToSpeak }),
+                    signal: ttsAbortController.signal,
+                });
+
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.detail || 'Αποτυχία δημιουργίας ήχου');
+                }
+
+                const blob = await res.blob();
+                currentAudioUrl = URL.createObjectURL(blob);
+                currentAudio = new Audio(currentAudioUrl);
+
+                currentAudio.onplay = () => {
+                    btn.disabled = false;
+                    btn.textContent = '⏸ Παύση';
+                    setVoiceStatus('speaking', 'Εξηγεί τώρα...');
+                };
+
+                currentAudio.onended = () => {
+                    btn.disabled = false;
+                    btn.textContent = '▶ Επανάληψη';
+                    setVoiceStatus('', 'Ολοκληρώθηκε');
+                };
+
+                currentAudio.onerror = () => {
+                    btn.disabled = false;
+                    btn.textContent = '▶ Επανάληψη';
+                    setVoiceStatus('', 'Σφάλμα αναπαραγωγής');
+                };
+
+                await currentAudio.play();
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error(err);
+                    setVoiceStatus('', 'Πάτα ▶ για ακρόαση');
+                }
+                btn.disabled = false;
+                btn.textContent = '▶ Ακρόαση';
             }
-            window.speechSynthesis.cancel();
-
-            const utterance = new SpeechSynthesisUtterance(textToSpeak);
-            utterance.lang = 'el-GR';
-            utterance.rate = 0.98;
-            utterance.pitch = 1.02;
-
-            const voices = window.speechSynthesis.getVoices();
-            const greekVoice = voices.find(v => v.lang && v.lang.toLowerCase().includes('el'));
-            if (greekVoice) utterance.voice = greekVoice;
-
-            utterance.onstart = () => {
-                isSpeaking = true;
-                isPaused = false;
-                document.getElementById('voice-play-pause-btn').textContent = '⏸ Παύση';
-                setVoiceStatus('speaking', 'Εξηγεί τώρα...');
-            };
-
-            utterance.onend = () => {
-                isSpeaking = false;
-                isPaused = false;
-                document.getElementById('voice-play-pause-btn').textContent = '▶ Επανάληψη';
-                setVoiceStatus('', 'Ολοκληρώθηκε');
-                if (onEndCallback) onEndCallback();
-            };
-
-            utterance.onerror = () => {
-                isSpeaking = false;
-                isPaused = false;
-                setVoiceStatus('', 'Έτοιμο');
-            };
-
-            window.speechSynthesis.speak(utterance);
         }
 
         function playVoiceSection(idx) {
@@ -1219,17 +1269,14 @@ def serve_ui():
         }
 
         function toggleVoicePlayPause() {
-            if (!('speechSynthesis' in window)) return;
             const btn = document.getElementById('voice-play-pause-btn');
 
-            if (isSpeaking && !isPaused) {
-                window.speechSynthesis.pause();
-                isPaused = true;
+            if (currentAudio && !currentAudio.paused) {
+                currentAudio.pause();
                 btn.textContent = '▶ Συνέχεια';
                 setVoiceStatus('', 'Σε παύση');
-            } else if (isPaused) {
-                window.speechSynthesis.resume();
-                isPaused = false;
+            } else if (currentAudio && currentAudio.paused && currentAudio.currentTime > 0 && !currentAudio.ended) {
+                currentAudio.play();
                 btn.textContent = '⏸ Παύση';
                 setVoiceStatus('speaking', 'Εξηγεί τώρα...');
             } else {
@@ -1310,7 +1357,7 @@ def serve_ui():
                 bubble.innerHTML = `<strong>Ερώτηση:</strong> ${question}<br><br><strong>Απάντηση:</strong> ${data.answer}`;
                 input.value = '';
 
-                speakGreekText(data.answer);
+                await speakGreekText(data.answer);
             } catch (err) {
                 alert(err.message);
                 setVoiceStatus('', 'Σφάλμα');
@@ -1551,10 +1598,6 @@ def serve_ui():
 
             window.scrollTo({ top: 0, behavior: 'smooth' });
             document.getElementById('notes-input').focus();
-        }
-
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
         }
     </script>
 </body>
