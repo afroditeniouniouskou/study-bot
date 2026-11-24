@@ -66,28 +66,34 @@ ACTIVE_MODELS = _discover_available_models()
 
 
 class StudySection(BaseModel):
-    heading: str = Field(description="Τίτλος της υποενότητας / σελίδας")
+    heading: str = Field(description="Απλός, ξεκάθαρος τίτλος της ενότητας")
     explanation: str = Field(
-        description="Αναλυτική, κατανοητή επεξήγηση του 'γιατί' και 'πώς' λειτουργεί η έννοια (2 γεμάτες παράγραφοι)"
+        description="Πολύ απλοϊκή, κατανοητή επεξήγηση σε φιλικό τόνο (2-3 παράγραφοι), σαν να τα εξηγείς προφορικά σε έναν φίλο χωρίς δύσκολη ορολογία"
     )
-    example: str = Field(description="Ένα συγκεκριμένο, ρεαλιστικό παράδειγμα εφαρμογής ή αναλογία")
+    example: str = Field(description="Ένα καθημερινό, ρεαλιστικό παράδειγμα ή αναλογία από την πραγματική ζωή")
 
 
 class QuizQuestion(BaseModel):
     question: str = Field(description="Ερώτηση κατανόησης πάνω στις σημειώσεις")
     options: list[str] = Field(description="4 επιλογές απάντησης")
     correct_index: int = Field(description="Δείκτης 0-3 της σωστής απάντησης")
-    explanation: str = Field(description="Σύντομη επεξήγηση γιατί αυτή είναι η σωστή απάντηση")
+    explanation: str = Field(description="Απλή επεξήγηση γιατί αυτή είναι η σωστή απάντηση")
 
 
 class StudyGuideResponse(BaseModel):
     title: str = Field(description="Γενικός τίτλος του κεφαλαίου")
     sections: list[StudySection] = Field(
-        description="3 έως 4 αναλυτικές σελίδες/ενότητες θεωρίας με επεξηγήσεις και παραδείγματα"
+        description="3 έως 4 αναλυτικές, πολύ κατανοητές ενότητες θεωρίας με επεξηγήσεις και παραδείγματα"
     )
-    key_takeaways: list[str] = Field(description="3 έως 5 βασικά συμπεράσματα-κλειδιά")
+    key_takeaways: list[str] = Field(description="3 έως 5 βασικά συμπεράσματα-κλειδιά με απλά λόγια")
     quiz: list[QuizQuestion] = Field(description="5 ερωτήσεις πολλαπλής επιλογής")
     extracted_text: str = Field(default="", description="Το κείμενο των σημειώσεων")
+
+
+class VoiceAnswerResponse(BaseModel):
+    answer: str = Field(
+        description="Πολύ απλοϊκή, προφορική και φιλική απάντηση 3-5 προτάσεων στα Ελληνικά, χωρίς σύμβολα markdown, έτοιμη να διαβαστεί δυνατά"
+    )
 
 
 def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
@@ -110,7 +116,7 @@ def _fast_generate_config(system_instruction: str, schema, temperature: float):
         response_mime_type="application/json",
         response_schema=schema,
         temperature=temperature,
-        max_output_tokens=2400,
+        max_output_tokens=2800,
     )
 
 
@@ -157,27 +163,48 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
 
 
 def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
-    """Παράγει αναλυτικό οδηγό με σελίδες/παραδείγματα και διαδραστικό Quiz."""
+    """Παράγει εξαιρετικά απλοϊκό, επεξηγηματικό οδηγό και διαδραστικό Quiz."""
     trimmed_notes = notes_text[:9000]
 
     system_instruction = """
-    Είσαι ένας εξαιρετικός, μεταδοτικός καθηγητής. Απάντησε στα Ελληνικά:
-1. Χώρισε την ύλη σε 3 έως 4 λογικές ενότητες/σελίδες (sections). Για κάθε ενότητα δώσε:
-  - Αναλυτική, σε βάθος επεξήγηση με απλά λόγια (2 γεμάτες παράγραφοι), εξηγώντας το 'γιατί' και το 'πώς'.
-  - Ένα συγκεκριμένο, κατανοητό πρακτικό παράδειγμα.
-2. Δώσε 3-5 βασικά σημεία-κλειδιά (key_takeaways).
-3. Δημιούργησε 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με επεξήγηση.
+    Είσαι ο πιο μεταδοτικός, υπομονετικός καθηγητής. Ο στόχος σου είναι να κάνεις ακόμα και τις πιο δύσκολες έννοιες απολύτως ξεκάθαρες σε κάποιον που τις βλέπει πρώτη φορά.
+    Απάντησε στα Ελληνικά:
+    1. Χώρισε την ύλη σε 3 έως 4 λογικές ενότητες (sections). Για κάθε ενότητα:
+       - Εξήγησέ την με ΠΟΛΥ ΑΠΛΑ, καθημερινά λόγια (2-3 γεμάτες παράγραφοι). Απόφυγε τη στείρα ακαδημαϊκή ορολογία — κι αν αναφέρεις έναν τεχνικό όρο, εξήγησέ τον αμέσως σε παρένθεση με απλά ελληνικά. Ξεκίνα από το "τι πρόβλημα λύνει αυτό;" και μετά εξήγησε βήμα-βήμα "πώς δουλεύει".
+       - Δώσε ένα ζωντανό, καθημερινό παράδειγμα (π.χ. με μαγειρική, οδήγηση, ψώνια, παιχνίδι) ώστε να «κλειδώσει» η κατανόηση.
+    2. Δώσε 3-5 βασικά συμπεράσματα-κλειδιά (key_takeaways) διατυπωμένα απλά και πρακτικά.
+    3. Δημιούργησε 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με απλή επεξήγηση.
     """
 
     raw_json = _call_with_resilient_retry(
         contents=f"ΣΗΜΕΙΩΣΕΙΣ:\n{trimmed_notes}",
         system_instruction=system_instruction,
         schema=StudyGuideResponse,
-        temperature=0.25,
+        temperature=0.3,
     )
     result = StudyGuideResponse.model_validate_json(raw_json)
     result.extracted_text = trimmed_notes
     return result
+
+
+def answer_voice_question(notes_text: str, question: str) -> VoiceAnswerResponse:
+    """Απαντά απλοϊκά και προφορικά σε ερώτηση του φοιτητή πάνω στις σημειώσεις."""
+    trimmed_notes = notes_text[:9000]
+
+    system_instruction = """
+    Είσαι ένας φιλικός καθηγητής που κάνει ιδιαίτερο μάθημα προφορικά στα Ελληνικά.
+    Ο μαθητής σε διέκοψε για να σου κάνει μια ερώτηση πάνω στο μάθημα.
+    Απάντησε ΠΟΛΥ ΑΠΛΟΪΚΑ, ζεστά και κατανοητά (σε 3 έως 5 σύντομες προτάσεις), με ένα μικρό καθημερινό παράδειγμα αν βοηθάει.
+    ΜΗΝ χρησιμοποιείς αστεράκια (**), bullets (-), σύμβολα κώδικα ή markdown, γιατί το κείμενο θα διαβαστεί δυνατά με φωνή!
+    """
+
+    raw_json = _call_with_resilient_retry(
+        contents=f"ΥΛΗ ΜΑΘΗΜΑΤΟΣ:\n{trimmed_notes}\n\nΕΡΩΤΗΣΗ ΜΑΘΗΤΗ:\n{question}",
+        system_instruction=system_instruction,
+        schema=VoiceAnswerResponse,
+        temperature=0.35,
+    )
+    return VoiceAnswerResponse.model_validate_json(raw_json)
 
 
 class NewQuizResponse(BaseModel):
@@ -193,7 +220,7 @@ def generate_new_quiz(notes_text: str, previous_questions: list[str] = None) -> 
         avoid_block = f"\nΜΗΝ επαναλάβεις:\n{joined}\n"
 
     system_instruction = """
-    Δημιούργησε 5 ΝΕΕΣ ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία, με επεξήγηση) στα Ελληνικά.
+    Δημιούργησε 5 ΝΕΕΣ ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία, με απλή επεξήγηση) στα Ελληνικά.
     """
 
     raw_json = _call_with_resilient_retry(

@@ -7,16 +7,23 @@ from rag_engine import (
     extract_text_from_bytes,
     generate_study_guide_and_quiz,
     generate_new_quiz,
+    answer_voice_question,
     StudyGuideResponse,
     NewQuizResponse,
+    VoiceAnswerResponse,
 )
 
-app = FastAPI(title="Study Studio — Explainer & Quiz")
+app = FastAPI(title="Study Studio — Explainer, Voice Tutor & Quiz")
 
 
 class NewQuizRequest(BaseModel):
     notes_text: str
     previous_questions: list[str] = []
+
+
+class VoiceQuestionRequest(BaseModel):
+    notes_text: str
+    question: str
 
 
 @app.post("/api/study", response_model=StudyGuideResponse)
@@ -40,6 +47,18 @@ async def api_study(
 
     try:
         return generate_study_guide_and_quiz(combined_text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/voice-ask", response_model=VoiceAnswerResponse)
+def api_voice_ask(payload: VoiceQuestionRequest):
+    if len(payload.notes_text.strip()) < 20:
+        raise HTTPException(status_code=400, detail="Δεν βρέθηκαν σημειώσεις μαθήματος.")
+    if not payload.question.strip():
+        raise HTTPException(status_code=400, detail="Δεν ακούστηκε ερώτηση.")
+    try:
+        return answer_voice_question(payload.notes_text, payload.question)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -137,10 +156,15 @@ def serve_ui():
             text-transform: uppercase;
         }
 
-        .header-reset-btn {
+        .header-actions {
             display: none;
             position: absolute;
             right: 32px;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .header-reset-btn {
             background: var(--btn-blue);
             color: #ffffff;
             border: none;
@@ -153,9 +177,22 @@ def serve_ui():
         }
         .header-reset-btn:hover { background: var(--btn-blue-hover); transform: translateY(-1px); }
 
-        @media (max-width: 720px) {
+        .header-mode-btn {
+            background: #ffffff;
+            color: var(--btn-blue);
+            border: 1px solid rgba(15, 41, 74, 0.25);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .header-mode-btn:hover { background: rgba(15, 41, 74, 0.06); }
+
+        @media (max-width: 780px) {
             header { flex-direction: column; gap: 12px; padding: 16px 20px; }
-            .header-reset-btn { position: static; }
+            .header-actions { position: static; flex-wrap: wrap; justify-content: center; }
         }
 
         .workspace {
@@ -214,7 +251,7 @@ def serve_ui():
 
         textarea {
             width: 100%;
-            min-height: 190px;
+            min-height: 180px;
             padding: 16px 18px;
             border-radius: 10px;
             border: 1px solid rgba(11, 25, 44, 0.15);
@@ -237,7 +274,7 @@ def serve_ui():
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 16px;
+            gap: 14px;
             margin-top: 20px;
             padding-top: 18px;
             border-top: 1px solid var(--line);
@@ -263,22 +300,195 @@ def serve_ui():
             border-color: rgba(11, 25, 44, 0.28);
         }
 
+        .mode-choice-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
         .btn-primary {
             background: var(--btn-blue);
             color: #ffffff;
             font-weight: 700;
             border: none;
-            padding: 12px 24px;
+            padding: 12px 20px;
             border-radius: 8px;
             cursor: pointer;
-            font-size: 0.94rem;
+            font-size: 0.92rem;
             letter-spacing: -0.01em;
             box-shadow: 0 4px 12px rgba(15, 41, 74, 0.22);
             transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
         .btn-primary:hover { background: var(--btn-blue-hover); transform: translateY(-1px); }
         .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
+        .btn-secondary {
+            background: #ffffff;
+            color: var(--btn-blue);
+            font-weight: 700;
+            border: 1.5px solid var(--btn-blue);
+            padding: 11px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.92rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-secondary:hover { background: rgba(15, 41, 74, 0.06); transform: translateY(-1px); }
+        .btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+        /* VOICE TUTOR PANEL */
+        .voice-panel {
+            display: none;
+            flex-direction: column;
+            gap: 22px;
+            background: var(--surface-warm);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            padding: 36px;
+            box-shadow: 0 24px 48px -12px rgba(11, 25, 44, 0.16);
+        }
+
+        .voice-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 14px;
+            flex-wrap: wrap;
+            padding-bottom: 18px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .voice-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            background: rgba(15, 41, 74, 0.08);
+            color: var(--btn-blue);
+        }
+        .voice-status-badge.speaking {
+            background: rgba(5, 150, 105, 0.14);
+            color: #065f46;
+        }
+        .voice-status-badge.listening {
+            background: rgba(225, 29, 72, 0.14);
+            color: #9f1239;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 1.2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.3); }
+        }
+
+        .voice-card-live {
+            background: #ffffff;
+            border: 1px solid rgba(11, 25, 44, 0.1);
+            border-radius: 12px;
+            padding: 22px 24px;
+        }
+
+        .voice-sec-label {
+            font-size: 0.78rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--ink-muted);
+            margin-bottom: 6px;
+        }
+
+        .voice-sec-title {
+            font-size: 1.22rem;
+            font-weight: 800;
+            color: var(--btn-blue);
+            margin-bottom: 12px;
+        }
+
+        .voice-transcript {
+            font-size: 1.02rem;
+            line-height: 1.75;
+            color: var(--ink);
+            white-space: pre-wrap;
+        }
+
+        .voice-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn-mic {
+            background: #e11d48;
+            color: #ffffff;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 0.92rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);
+            transition: 0.2s;
+        }
+        .btn-mic:hover { background: #be123c; }
+        .btn-mic.recording { background: #9f1239; animation: pulse 1s infinite; }
+
+        .voice-qa-box {
+            margin-top: 6px;
+            padding-top: 18px;
+            border-top: 1px solid var(--line);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .voice-ask-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .voice-ask-input {
+            flex: 1;
+            min-width: 220px;
+            padding: 11px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(11, 25, 44, 0.18);
+            font-size: 0.94rem;
+            outline: none;
+        }
+        .voice-ask-input:focus { border-color: var(--btn-blue); }
+
+        .qa-bubble {
+            padding: 14px 16px;
+            border-radius: 10px;
+            background: rgba(248, 214, 117, 0.25);
+            border: 1px solid rgba(11, 25, 44, 0.08);
+            font-size: 0.95rem;
+            line-height: 1.65;
+            display: none;
+        }
+
+        /* READING & QUIZ RESULTS */
         .results-stack {
             display: none;
             flex-direction: column;
@@ -680,9 +890,12 @@ def serve_ui():
     <header>
         <div class="brand">
             <h1>Study Studio</h1>
-            <span>Notes &amp; Comprehension</span>
+            <span>Voice Tutor &amp; Comprehension</span>
         </div>
-        <button class="header-reset-btn" id="header-new-notes-btn" onclick="startNextChapter()">Νέες Σημειώσεις</button>
+        <div class="header-actions" id="header-actions">
+            <button class="header-mode-btn" id="switch-mode-btn" onclick="toggleStudyMode()">Αλλαγή Τρόπου Μελέτης</button>
+            <button class="header-reset-btn" onclick="startNextChapter()">Νέες Σημειώσεις</button>
+        </div>
     </header>
 
     <main class="workspace" id="main-wrapper">
@@ -691,7 +904,7 @@ def serve_ui():
                 <h2>Εισαγωγή Σημειώσεων</h2>
                 <button type="button" class="sample-btn" onclick="fillDemoNotes()">Δοκιμή με παράδειγμα</button>
             </div>
-            <textarea id="notes-input" placeholder="Επικόλλησε το κείμενο των σημειώσεών σου εδώ..."></textarea>
+            <textarea id="notes-input" placeholder="Επικόλλησε το κείμενο των σημειώσεών σου ή επίλεξε ένα αρχείο..."></textarea>
 
             <div class="composer-footer">
                 <label class="upload-trigger">
@@ -699,15 +912,60 @@ def serve_ui():
                     <span id="file-name">Επιλογή αρχείου (.pdf, .txt, .py)</span>
                     <input type="file" id="file-input" accept=".pdf,.txt,.py,.md" style="display:none" onchange="updateFileName()">
                 </label>
-                <button class="btn-primary" id="generate-btn" onclick="generateStudy()">Ανάλυση &amp; Quiz</button>
+
+                <div class="mode-choice-group">
+                    <button class="btn-secondary" id="btn-read-mode" onclick="startStudy('read')">
+                        📖 Διάβασμα Περίληψης
+                    </button>
+                    <button class="btn-primary" id="btn-voice-mode" onclick="startStudy('voice')">
+                        🎙️ Φωνητική Εξήγηση
+                    </button>
+                </div>
             </div>
         </section>
 
+        <!-- VOICE TUTOR VIEW -->
+        <section class="voice-panel" id="voice-area">
+            <div class="voice-top">
+                <div>
+                    <span class="eyebrow">Φωνητικός Καθηγητής · Απλοϊκή Ανάλυση</span>
+                    <h2 class="doc-title" id="voice-title">Τίτλος Μαθήματος</h2>
+                </div>
+                <span class="voice-status-badge" id="voice-status">
+                    <span class="pulse-dot"></span>
+                    <span id="voice-status-text">Έτοιμο</span>
+                </span>
+            </div>
+
+            <div class="voice-card-live">
+                <div class="voice-sec-label" id="voice-sec-counter">Ενότητα 1 από 1</div>
+                <div class="voice-sec-title" id="voice-sec-title">Τίτλος Ενότητας</div>
+                <div class="voice-transcript" id="voice-transcript"></div>
+            </div>
+
+            <div class="voice-controls">
+                <button class="btn-secondary" id="voice-prev-btn" onclick="voiceChangeSection(-1)">← Προηγούμενη</button>
+                <button class="btn-primary" id="voice-play-pause-btn" onclick="toggleVoicePlayPause()">⏸ Παύση</button>
+                <button class="btn-secondary" id="voice-next-btn" onclick="voiceChangeSection(1)">Επόμενη Ενότητα →</button>
+                <button class="btn-mic" id="mic-btn" onclick="startVoiceQuestion()">🎤 Κάνε Φωνητική Ερώτηση</button>
+            </div>
+
+            <div class="voice-qa-box">
+                <div class="eyebrow">Έχεις απορία; Διέκοψέ με με φωνή ή γράψε την ερώτησή σου:</div>
+                <div class="voice-ask-row">
+                    <input type="text" class="voice-ask-input" id="voice-text-question" placeholder="Π.χ. Μπορείς να μου το εξηγήσεις με ένα ακόμα πιο απλό παράδειγμα;" onkeydown="if(event.key==='Enter') submitVoiceQuestion()">
+                    <button class="btn-primary" id="voice-send-q-btn" onclick="submitVoiceQuestion()">Ερώτηση</button>
+                </div>
+                <div class="qa-bubble" id="voice-qa-bubble"></div>
+            </div>
+        </section>
+
+        <!-- READING & QUIZ VIEW -->
         <div class="results-stack" id="results-area">
             <article class="summary-sheet" id="summary-sheet">
                 <div class="summary-header">
                     <div>
-                        <span class="eyebrow">01 · Αναλυτικός Οδηγός Μελέτης</span>
+                        <span class="eyebrow">01 · Απλοϊκός Οδηγός Μελέτης</span>
                         <h2 class="doc-title" id="result-title">Τίτλος Ενότητας</h2>
                     </div>
                     <span class="page-indicator" id="page-indicator">Σελίδα 1 από 1</span>
@@ -718,7 +976,7 @@ def serve_ui():
                     <div class="doc-body" id="sec-explanation"></div>
 
                     <div class="example-callout" id="sec-example-box">
-                        <span class="example-label">Πρακτικό Παράδειγμα</span>
+                        <span class="example-label">Καθημερινό Παράδειγμα</span>
                         <div class="example-text" id="sec-example"></div>
                     </div>
                 </div>
@@ -760,8 +1018,15 @@ def serve_ui():
     </main>
 
     <script>
+        let currentStudyData = null;
+        let currentMode = 'read';
         let summarySections = [];
         let currentSummaryPage = 0;
+
+        let voiceSectionIndex = 0;
+        let isSpeaking = false;
+        let isPaused = false;
+        let recognition = null;
 
         let currentQuizData = [];
         let userSelections = {};
@@ -780,17 +1045,23 @@ def serve_ui():
 `Το Gradient Descent (Κατάβαση Κλίσης) είναι ο βασικός αλγόριθμος βελτιστοποίησης στη Μηχανική Μάθηση. Σκοπός του είναι να ελαχιστοποιήσει τη συνάρτηση κόστους (Loss Function), η οποία μετρά πόσο απέχουν οι προβλέψεις του μοντέλου από τις πραγματικές τιμές. Σε κάθε βήμα, υπολογίζει την παράγωγο (gradient) της συνάρτησης κόστους ως προς τα βάρη (weights) και ενημερώνει τα βάρη προς την αντίθετη κατεύθυνση της κλίσης. Το μέγεθος του βήματος καθορίζεται από το Learning Rate (ρυθμός μάθησης): αν είναι πολύ μεγάλο, ο αλγόριθμος μπορεί να αστοχήσει και να αποκλίνει· αν είναι πολύ μικρό, η εκπαίδευση γίνεται εξαιρετικά αργή.`;
         }
 
-        async function generateStudy() {
+        async function startStudy(mode) {
             const notes = document.getElementById('notes-input').value.trim();
             const fileInput = document.getElementById('file-input');
-            const btn = document.getElementById('generate-btn');
+            const btnRead = document.getElementById('btn-read-mode');
+            const btnVoice = document.getElementById('btn-voice-mode');
 
             if (!notes && !fileInput.files.length) {
                 return alert('Πρόσθεσε σημειώσεις ή επίλεξε ένα αρχείο πρώτα.');
             }
 
-            btn.disabled = true;
-            btn.textContent = 'Επεξεργασία...';
+            btnRead.disabled = true;
+            btnVoice.disabled = true;
+            if (mode === 'voice') {
+                btnVoice.textContent = 'Προετοιμασία μαθήματος...';
+            } else {
+                btnRead.textContent = 'Επεξεργασία...';
+            }
 
             const formData = new FormData();
             formData.append('notes_text', notes);
@@ -806,25 +1077,252 @@ def serve_ui():
                 catch { throw new Error(`Σφάλμα διακομιστή (HTTP ${res.status}).`); }
 
                 if (!res.ok) throw new Error(data.detail || 'Αποτυχία επεξήγησης');
+
+                currentStudyData = data;
                 activeNotesText = data.extracted_text || notes;
-                renderResults(data);
+                summarySections = data.sections || [];
+
+                document.getElementById('input-panel').style.display = 'none';
+                document.getElementById('main-wrapper').classList.add('active-study');
+                document.getElementById('header-actions').style.display = 'flex';
+
+                prepareReadingView(data);
+
+                if (mode === 'voice') {
+                    activateVoiceMode();
+                } else {
+                    activateReadMode();
+                }
             } catch (err) {
                 alert(err.message);
             } finally {
-                btn.disabled = false;
-                btn.textContent = 'Ανάλυση & Quiz';
+                btnRead.disabled = false;
+                btnVoice.disabled = false;
+                btnRead.textContent = '📖 Διάβασμα Περίληψης';
+                btnVoice.textContent = '🎙️ Φωνητική Εξήγηση';
             }
         }
 
-        function renderResults(data) {
-            document.getElementById('input-panel').style.display = 'none';
-            document.getElementById('main-wrapper').classList.add('active-study');
-            document.getElementById('header-new-notes-btn').style.display = 'inline-block';
-
+        function activateReadMode() {
+            stopSpeech();
+            currentMode = 'read';
+            document.getElementById('voice-area').style.display = 'none';
             document.getElementById('results-area').style.display = 'flex';
-            document.getElementById('result-title').textContent = data.title;
+            document.getElementById('switch-mode-btn').textContent = '🎙️ Άκουσε Φωνητικά';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
 
-            summarySections = data.sections || [];
+        function activateVoiceMode() {
+            currentMode = 'voice';
+            document.getElementById('results-area').style.display = 'none';
+            document.getElementById('voice-area').style.display = 'flex';
+            document.getElementById('switch-mode-btn').textContent = '📖 Διάβασμα & Quiz';
+            document.getElementById('voice-title').textContent = currentStudyData.title;
+            document.getElementById('voice-qa-bubble').style.display = 'none';
+            voiceSectionIndex = 0;
+            playVoiceSection(0);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function toggleStudyMode() {
+            if (currentMode === 'voice') {
+                activateReadMode();
+            } else {
+                activateVoiceMode();
+            }
+        }
+
+        /* --- VOICE TUTOR ENGINE --- */
+        function setVoiceStatus(state, label) {
+            const badge = document.getElementById('voice-status');
+            badge.className = 'voice-status-badge ' + (state || '');
+            document.getElementById('voice-status-text').textContent = label;
+        }
+
+        function stopSpeech() {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+            isSpeaking = false;
+            isPaused = false;
+            document.getElementById('voice-play-pause-btn').textContent = '▶ Επανάληψη';
+            setVoiceStatus('', 'Σε αναμονή');
+        }
+
+        function speakGreekText(textToSpeak, onEndCallback) {
+            if (!('speechSynthesis' in window)) {
+                setVoiceStatus('', 'Ο browser δεν υποστηρίζει φωνή');
+                return;
+            }
+            window.speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(textToSpeak);
+            utterance.lang = 'el-GR';
+            utterance.rate = 0.98;
+            utterance.pitch = 1.02;
+
+            const voices = window.speechSynthesis.getVoices();
+            const greekVoice = voices.find(v => v.lang && v.lang.toLowerCase().includes('el'));
+            if (greekVoice) utterance.voice = greekVoice;
+
+            utterance.onstart = () => {
+                isSpeaking = true;
+                isPaused = false;
+                document.getElementById('voice-play-pause-btn').textContent = '⏸ Παύση';
+                setVoiceStatus('speaking', 'Εξηγεί τώρα...');
+            };
+
+            utterance.onend = () => {
+                isSpeaking = false;
+                isPaused = false;
+                document.getElementById('voice-play-pause-btn').textContent = '▶ Επανάληψη';
+                setVoiceStatus('', 'Ολοκληρώθηκε');
+                if (onEndCallback) onEndCallback();
+            };
+
+            utterance.onerror = () => {
+                isSpeaking = false;
+                isPaused = false;
+                setVoiceStatus('', 'Έτοιμο');
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function playVoiceSection(idx) {
+            if (!summarySections.length) return;
+            voiceSectionIndex = idx;
+            const total = summarySections.length;
+            const sec = summarySections[idx];
+
+            document.getElementById('voice-sec-counter').textContent = `Ενότητα ${idx + 1} από ${total}`;
+            document.getElementById('voice-sec-title').textContent = sec.heading;
+
+            const fullText = `${sec.explanation}\n\nΓια παράδειγμα: ${sec.example}`;
+            document.getElementById('voice-transcript').textContent = fullText;
+
+            document.getElementById('voice-prev-btn').disabled = (idx === 0);
+            document.getElementById('voice-next-btn').disabled = (idx === total - 1);
+
+            const intro = idx === 0
+                ? `Πάμε να δούμε το μάθημα ${currentStudyData.title}. Πρώτο μέρος: ${sec.heading}. `
+                : `Ενότητα ${idx + 1}: ${sec.heading}. `;
+
+            speakGreekText(`${intro}${sec.explanation}. Για να το καταλάβεις ακόμα πιο απλά, δες ένα παράδειγμα: ${sec.example}`);
+        }
+
+        function voiceChangeSection(delta) {
+            const next = voiceSectionIndex + delta;
+            if (next >= 0 && next < summarySections.length) {
+                playVoiceSection(next);
+            }
+        }
+
+        function toggleVoicePlayPause() {
+            if (!('speechSynthesis' in window)) return;
+            const btn = document.getElementById('voice-play-pause-btn');
+
+            if (isSpeaking && !isPaused) {
+                window.speechSynthesis.pause();
+                isPaused = true;
+                btn.textContent = '▶ Συνέχεια';
+                setVoiceStatus('', 'Σε παύση');
+            } else if (isPaused) {
+                window.speechSynthesis.resume();
+                isPaused = false;
+                btn.textContent = '⏸ Παύση';
+                setVoiceStatus('speaking', 'Εξηγεί τώρα...');
+            } else {
+                playVoiceSection(voiceSectionIndex);
+            }
+        }
+
+        function startVoiceQuestion() {
+            stopSpeech();
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert('Ο browser σου δεν υποστηρίζει φωνητική αναγνώριση. Μπορείς να γράψεις την ερώτησή σου στο πεδίο από κάτω.');
+                document.getElementById('voice-text-question').focus();
+                return;
+            }
+
+            if (recognition) {
+                try { recognition.stop(); } catch {}
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.lang = 'el-GR';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            const micBtn = document.getElementById('mic-btn');
+            micBtn.classList.add('recording');
+            micBtn.textContent = '🔴 Μίλα τώρα...';
+            setVoiceStatus('listening', 'Σε ακούω...');
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('voice-text-question').value = transcript;
+                submitVoiceQuestion();
+            };
+
+            recognition.onerror = (event) => {
+                setVoiceStatus('', 'Δεν ακούστηκε ερώτηση');
+                if (event.error === 'not-allowed') {
+                    alert('Δώσε άδεια στο μικρόφωνο από τον browser για να ρωτήσεις φωνητικά.');
+                }
+            };
+
+            recognition.onend = () => {
+                micBtn.classList.remove('recording');
+                micBtn.textContent = '🎤 Κάνε Φωνητική Ερώτηση';
+            };
+
+            recognition.start();
+        }
+
+        async function submitVoiceQuestion() {
+            const input = document.getElementById('voice-text-question');
+            const question = input.value.trim();
+            if (!question) return;
+
+            stopSpeech();
+            const btn = document.getElementById('voice-send-q-btn');
+            const bubble = document.getElementById('voice-qa-bubble');
+
+            btn.disabled = true;
+            btn.textContent = 'Σκέφτομαι...';
+            setVoiceStatus('', 'Ετοιμάζω απάντηση...');
+
+            try {
+                const res = await fetch('/api/voice-ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        notes_text: activeNotesText,
+                        question: question,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Αποτυχία απάντησης');
+
+                bubble.style.display = 'block';
+                bubble.innerHTML = `<strong>Ερώτηση:</strong> ${question}<br><br><strong>Απάντηση:</strong> ${data.answer}`;
+                input.value = '';
+
+                speakGreekText(data.answer);
+            } catch (err) {
+                alert(err.message);
+                setVoiceStatus('', 'Σφάλμα');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Ερώτηση';
+            }
+        }
+
+        /* --- READING & QUIZ --- */
+        function prepareReadingView(data) {
+            document.getElementById('result-title').textContent = data.title;
             currentSummaryPage = 0;
 
             const list = document.getElementById('takeaways-list');
@@ -834,7 +1332,6 @@ def serve_ui():
 
             renderSummaryPage(0);
             renderQuizQuestions(data.quiz);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         function renderSummaryPage(pageIdx) {
@@ -1037,20 +1534,27 @@ def serve_ui():
         }
 
         function startNextChapter() {
+            stopSpeech();
             document.getElementById('notes-input').value = '';
             document.getElementById('file-input').value = '';
             updateFileName();
             activeNotesText = '';
+            currentStudyData = null;
             summarySections = [];
             currentSummaryPage = 0;
 
             document.getElementById('results-area').style.display = 'none';
-            document.getElementById('header-new-notes-btn').style.display = 'none';
+            document.getElementById('voice-area').style.display = 'none';
+            document.getElementById('header-actions').style.display = 'none';
             document.getElementById('main-wrapper').classList.remove('active-study');
             document.getElementById('input-panel').style.display = 'block';
 
             window.scrollTo({ top: 0, behavior: 'smooth' });
             document.getElementById('notes-input').focus();
+        }
+
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
         }
     </script>
 </body>
