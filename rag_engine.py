@@ -22,8 +22,6 @@ def _discover_available_models() -> list[str]:
         "gemini-flash-lite-latest",
         "gemini-3-flash-preview",
         "gemini-3.1-flash-lite-preview",
-        "gemini-3.1-pro-preview",
-        "gemini-pro-latest",
     ]
     try:
         discovered = []
@@ -47,15 +45,14 @@ def _discover_available_models() -> list[str]:
                 "gemini-3-flash-preview",
                 "gemini-3.1-flash-lite-preview",
                 "gemini-3.1-pro-preview",
-                "gemini-pro-latest",
             ]
             ordered = [m for m in priority if m in pool]
             for m in sorted(pool, reverse=True):
                 if m not in ordered:
                     ordered.append(m)
 
-            print(f"✅ Διαθέσιμα Gemini μοντέλα: {ordered[:6]}", flush=True)
-            return ordered[:6]
+            print(f"✅ Διαθέσιμα Gemini μοντέλα: {ordered[:5]}", flush=True)
+            return ordered[:5]
     except Exception as e:
         print(f"⚠️ Αδυναμία ανάκτησης λίστας μοντέλων ({e}), χρήση fallback.", flush=True)
 
@@ -68,9 +65,9 @@ ACTIVE_MODELS = _discover_available_models()
 class StudySection(BaseModel):
     heading: str = Field(description="Απλός, ξεκάθαρος τίτλος της ενότητας")
     explanation: str = Field(
-        description="Πολύ απλοϊκή, κατανοητή επεξήγηση σε φιλικό τόνο (2-3 παράγραφοι), σαν να τα εξηγείς προφορικά σε έναν φίλο χωρίς δύσκολη ορολογία"
+        description="Πολύ απλοϊκή, κατανοητή επεξήγηση σε φιλικό τόνο (2 παράγραφοι), σαν να τα εξηγείς προφορικά σε έναν φίλο χωρίς δύσκολη ορολογία"
     )
-    example: str = Field(description="Ένα καθημερινό, ρεαλιστικό παράδειγμα ή αναλογία από την πραγματική ζωή")
+    example: str = Field(description="Ένα καθημερινό, ρεαλιστικό παράδειγμα ή αναλογία")
 
 
 class QuizQuestion(BaseModel):
@@ -83,41 +80,47 @@ class QuizQuestion(BaseModel):
 class StudyGuideResponse(BaseModel):
     title: str = Field(description="Γενικός τίτλος του κεφαλαίου")
     sections: list[StudySection] = Field(
-        description="3 έως 4 αναλυτικές, πολύ κατανοητές ενότητες θεωρίας με επεξηγήσεις και παραδείγματα"
+        description="3 αναλυτικές, πολύ κατανοητές ενότητες θεωρίας με επεξηγήσεις και παραδείγματα"
     )
-    key_takeaways: list[str] = Field(description="3 έως 5 βασικά συμπεράσματα-κλειδιά με απλά λόγια")
+    key_takeaways: list[str] = Field(description="3 έως 4 βασικά συμπεράσματα-κλειδιά με απλά λόγια")
     quiz: list[QuizQuestion] = Field(description="5 ερωτήσεις πολλαπλής επιλογής")
     extracted_text: str = Field(default="", description="Το κείμενο των σημειώσεων")
 
 
 class VoiceAnswerResponse(BaseModel):
     answer: str = Field(
-        description="Πολύ απλοϊκή, προφορική και φιλική απάντηση 3-5 προτάσεων στα Ελληνικά, χωρίς σύμβολα markdown, έτοιμη να διαβαστεί δυνατά"
+        description="Πολύ απλοϊκή, προφορική απάντηση 3-4 προτάσεων στα Ελληνικά, χωρίς markdown, έτοιμη να διαβαστεί δυνατά"
     )
 
 
 def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
-    """Διαβάζει κείμενο από PDF ή αρχείο κειμένου απευθείας από τη μνήμη (RAM)."""
+    """Διαβάζει γρήγορα κείμενο από PDF ή αρχείο κειμένου απευθείας από τη μνήμη (RAM)."""
     ext = os.path.splitext(filename)[1].lower()
     if ext == ".pdf":
         pages_text = []
+        total_chars = 0
         with fitz.open(stream=file_bytes, filetype="pdf") as doc:
-            for page in doc[:15]:
-                pages_text.append(page.get_text())
-                if sum(len(p) for p in pages_text) > 12000:
+            for page in doc[:12]:
+                txt = page.get_text()
+                pages_text.append(txt)
+                total_chars += len(txt)
+                if total_chars > 7000:
                     break
         return "\n\n".join(pages_text).strip()
-    return file_bytes[:50000].decode("utf-8", errors="ignore").strip()
+    return file_bytes[:30000].decode("utf-8", errors="ignore").strip()
 
 
-def _fast_generate_config(system_instruction: str, schema, temperature: float):
-    return types.GenerateContentConfig(
-        system_instruction=system_instruction,
-        response_mime_type="application/json",
-        response_schema=schema,
-        temperature=temperature,
-        max_output_tokens=2800,
-    )
+def _fast_generate_config(model_name: str, system_instruction: str, schema, temperature: float):
+    kwargs = {
+        "system_instruction": system_instruction,
+        "response_mime_type": "application/json",
+        "response_schema": schema,
+        "temperature": temperature,
+        "max_output_tokens": 2000,
+    }
+    if "flash" in model_name.lower() and "lite" not in model_name.lower():
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    return types.GenerateContentConfig(**kwargs)
 
 
 def _call_with_resilient_retry(contents: str, system_instruction: str, schema, temperature: float) -> str:
@@ -127,7 +130,7 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
         ACTIVE_MODELS = _discover_available_models()
 
     last_error = None
-    max_rounds = 3
+    max_rounds = 2
 
     for round_idx in range(1, max_rounds + 1):
         for model_name in ACTIVE_MODELS:
@@ -135,7 +138,7 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
                 response = client.models.generate_content(
                     model=model_name,
                     contents=contents,
-                    config=_fast_generate_config(system_instruction, schema, temperature),
+                    config=_fast_generate_config(model_name, system_instruction, schema, temperature),
                 )
                 if response and response.text:
                     return response.text
@@ -151,11 +154,11 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
                     continue
 
                 if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    time.sleep(0.6 * round_idx + random.uniform(0.1, 0.3))
+                    time.sleep(0.4 * round_idx + random.uniform(0.05, 0.2))
                     continue
 
         if round_idx < max_rounds:
-            time.sleep(1.0 * round_idx)
+            time.sleep(0.6)
 
     raise RuntimeError(
         f"Σφάλμα επικοινωνίας με Gemini API (μοντέλα: {ACTIVE_MODELS}): {last_error}"
@@ -163,17 +166,16 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
 
 
 def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
-    """Παράγει εξαιρετικά απλοϊκό, επεξηγηματικό οδηγό και διαδραστικό Quiz."""
-    trimmed_notes = notes_text[:9000]
+    """Παράγει γρήγορα απλοϊκό, επεξηγηματικό οδηγό και διαδραστικό Quiz."""
+    trimmed_notes = notes_text[:6500]
 
     system_instruction = """
-    Είσαι ο πιο μεταδοτικός, υπομονετικός καθηγητής. Ο στόχος σου είναι να κάνεις ακόμα και τις πιο δύσκολες έννοιες απολύτως ξεκάθαρες σε κάποιον που τις βλέπει πρώτη φορά.
-    Απάντησε στα Ελληνικά:
-    1. Χώρισε την ύλη σε 3 έως 4 λογικές ενότητες (sections). Για κάθε ενότητα:
-       - Εξήγησέ την με ΠΟΛΥ ΑΠΛΑ, καθημερινά λόγια (2-3 γεμάτες παράγραφοι). Απόφυγε τη στείρα ακαδημαϊκή ορολογία — κι αν αναφέρεις έναν τεχνικό όρο, εξήγησέ τον αμέσως σε παρένθεση με απλά ελληνικά. Ξεκίνα από το "τι πρόβλημα λύνει αυτό;" και μετά εξήγησε βήμα-βήμα "πώς δουλεύει".
-       - Δώσε ένα ζωντανό, καθημερινό παράδειγμα (π.χ. με μαγειρική, οδήγηση, ψώνια, παιχνίδι) ώστε να «κλειδώσει» η κατανόηση.
-    2. Δώσε 3-5 βασικά συμπεράσματα-κλειδιά (key_takeaways) διατυπωμένα απλά και πρακτικά.
-    3. Δημιούργησε 5 ουσιαστικές ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με απλή επεξήγηση.
+    Είσαι ένας μεταδοτικός καθηγητής. Εξήγησε την ύλη στα Ελληνικά με ΠΟΛΥ ΑΠΛΑ, καθημερινά λόγια (χωρίς δύσκολη ορολογία):
+    1. Χώρισε την ύλη σε 3 λογικές ενότητες (sections). Για κάθε ενότητα δώσε:
+       - Απλή, ζωντανή επεξήγηση (2 σύντομες παράγραφοι) που απαντά στο "τι πρόβλημα λύνει;" και "πώς δουλεύει;".
+       - Ένα καθημερινό παράδειγμα (π.χ. μαγειρική, οδήγηση, ψώνια).
+    2. Δώσε 3-4 απλά συμπεράσματα-κλειδιά (key_takeaways).
+    3. Δημιούργησε 5 ερωτήσεις πολλαπλής επιλογής (4 επιλογές η καθεμία) με απλή επεξήγηση.
     """
 
     raw_json = _call_with_resilient_retry(
@@ -189,17 +191,16 @@ def generate_study_guide_and_quiz(notes_text: str) -> StudyGuideResponse:
 
 def answer_voice_question(notes_text: str, question: str) -> VoiceAnswerResponse:
     """Απαντά απλοϊκά και προφορικά σε ερώτηση του φοιτητή πάνω στις σημειώσεις."""
-    trimmed_notes = notes_text[:9000]
+    trimmed_notes = notes_text[:6500]
 
     system_instruction = """
     Είσαι ένας φιλικός καθηγητής που κάνει ιδιαίτερο μάθημα προφορικά στα Ελληνικά.
-    Ο μαθητής σε διέκοψε για να σου κάνει μια ερώτηση πάνω στο μάθημα.
-    Απάντησε ΠΟΛΥ ΑΠΛΟΪΚΑ, ζεστά και κατανοητά (σε 3 έως 5 σύντομες προτάσεις), με ένα μικρό καθημερινό παράδειγμα αν βοηθάει.
-    ΜΗΝ χρησιμοποιείς αστεράκια (**), bullets (-), σύμβολα κώδικα ή markdown, γιατί το κείμενο θα διαβαστεί δυνατά με φωνή!
+    Απάντησε ΠΟΛΥ ΑΠΛΟΪΚΑ και κατανοητά (σε 3 έως 4 σύντομες προτάσεις), με ένα μικρό καθημερινό παράδειγμα.
+    ΜΗΝ χρησιμοποιείς αστεράκια (**), bullets (-), σύμβολα κώδικα ή markdown!
     """
 
     raw_json = _call_with_resilient_retry(
-        contents=f"ΥΛΗ ΜΑΘΗΜΑΤΟΣ:\n{trimmed_notes}\n\nΕΡΩΤΗΣΗ ΜΑΘΗΤΗ:\n{question}",
+        contents=f"ΥΛΗ:\n{trimmed_notes}\n\nΕΡΩΤΗΣΗ:\n{question}",
         system_instruction=system_instruction,
         schema=VoiceAnswerResponse,
         temperature=0.35,
@@ -213,7 +214,7 @@ class NewQuizResponse(BaseModel):
 
 def generate_new_quiz(notes_text: str, previous_questions: list[str] = None) -> NewQuizResponse:
     """Παράγει ένα νέο σετ 5 ερωτήσεων."""
-    trimmed_notes = notes_text[:9000]
+    trimmed_notes = notes_text[:6500]
     avoid_block = ""
     if previous_questions:
         joined = "\n".join(f"- {q}" for q in previous_questions)
