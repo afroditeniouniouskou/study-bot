@@ -11,14 +11,41 @@ load_dotenv()
 
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY"),
-    http_options=types.HttpOptions(timeout=40000),
+    http_options=types.HttpOptions(timeout=40000, api_version="v1beta"),
 )
 
-ACTIVE_MODELS = [
-    "gemini-3-flash-preview",
-    "gemini-3.1-flash-lite-preview",
-    "gemini-3.1-pro-preview",
-]
+
+def _discover_available_models() -> list[str]:
+    """Βρίσκει αυτόματα τα ενεργά Gemini μοντέλα που υποστηρίζουν generateContent."""
+    fallback = [
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-pro-preview",
+        "gemini-2.5-flash",
+    ]
+    try:
+        discovered = []
+        for m in client.models.list():
+            name = (m.name or "").replace("models/", "")
+            actions = m.supported_actions or []
+            if "gemini" in name.lower() and "generateContent" in actions:
+                if not any(x in name.lower() for x in ["embedding", "imagen", "veo", "tts", "audio", "robotics", "computer"]):
+                    discovered.append(name)
+
+        if discovered:
+            # Προτεραιότητα στα flash μοντέλα (πιο γρήγορα & οικονομικά), μετά τα υπόλοιπα
+            flash_models = sorted([m for m in discovered if "flash" in m.lower()], reverse=True)
+            other_models = sorted([m for m in discovered if "flash" not in m.lower()], reverse=True)
+            ordered = (flash_models + other_models)[:4]
+            print(f"✅ Διαθέσιμα Gemini μοντέλα: {ordered}", flush=True)
+            return ordered
+    except Exception as e:
+        print(f"⚠️ Αδυναμία ανάκτησης λίστας μοντέλων ({e}), χρήση fallback.", flush=True)
+
+    return fallback
+
+
+ACTIVE_MODELS = _discover_available_models()
 
 
 class StudySection(BaseModel):
@@ -60,21 +87,22 @@ def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
     return file_bytes[:50000].decode("utf-8", errors="ignore").strip()
 
 
-def _fast_generate_config(model_name: str, system_instruction: str, schema, temperature: float):
-    kwargs = {
-        "system_instruction": system_instruction,
-        "response_mime_type": "application/json",
-        "response_schema": schema,
-        "temperature": temperature,
-        "max_output_tokens": 2400,
-    }
-    if "flash" in model_name.lower() and "lite" not in model_name.lower():
-        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-    return types.GenerateContentConfig(**kwargs)
+def _fast_generate_config(system_instruction: str, schema, temperature: float):
+    return types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        response_mime_type="application/json",
+        response_schema=schema,
+        temperature=temperature,
+        max_output_tokens=2400,
+    )
 
 
 def _call_with_resilient_retry(contents: str, system_instruction: str, schema, temperature: float) -> str:
-    """Γρήγορη εναλλαγή Flash μοντέλων με σύντομο backoff σε 503/429."""
+    """Γρήγορη εναλλαγή διαθέσιμων μοντέλων με σύντομο backoff σε 503/429."""
+    global ACTIVE_MODELS
+    if not ACTIVE_MODELS:
+        ACTIVE_MODELS = _discover_available_models()
+
     last_error = None
     max_rounds = 3
 
@@ -84,7 +112,7 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
                 response = client.models.generate_content(
                     model=model_name,
                     contents=contents,
-                    config=_fast_generate_config(model_name, system_instruction, schema, temperature),
+                    config=_fast_generate_config(system_instruction, schema, temperature),
                 )
                 if response and response.text:
                     return response.text
@@ -107,7 +135,7 @@ def _call_with_resilient_retry(contents: str, system_instruction: str, schema, t
             time.sleep(1.0 * round_idx)
 
     raise RuntimeError(
-        f"Σφάλμα επικοινωνίας με Gemini API: {last_error}"
+        f"Σφάλμα επικοινωνίας με Gemini API (μοντέλα: {ACTIVE_MODELS}): {last_error}"
     ) from last_error
 
 
